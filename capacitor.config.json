@@ -1,0 +1,9 @@
+{
+  "appId": "com.devabu.mergedefense",
+  "appName": "Merge Defense",
+  "webDir": "www",
+  "backgroundColor": "#0f1a14",
+  "android": {
+    "allowMixedContent": false
+  }
+}
