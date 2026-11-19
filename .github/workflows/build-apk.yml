@@ -39,19 +39,19 @@ jobs:
       - name: Sync web assets
         run: npx cap sync android
 
-      - name: Use fixed debug signing key (so new APKs install over old ones)
-        run: |
-          mkdir -p ~/.android
-          cp keystore/debug.keystore ~/.android/debug.keystore
-
       - name: Build debug APK
         working-directory: android
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
+          ./gradlew assembleDebug --no-daemon -I ../android-signing.gradle
 
-      - name: Prepare APK
-        run: cp android/app/build/outputs/apk/debug/app-debug.apk merge-defense.apk
+      - name: Prepare APK and verify signing key
+        run: |
+          cp android/app/build/outputs/apk/debug/app-debug.apk merge-defense.apk
+          want=$(keytool -list -keystore keystore/debug.keystore -storepass android | grep -i 'fingerprint' | awk '{print $NF}')
+          got=$(keytool -printcert -jarfile merge-defense.apk | grep 'SHA256:' | head -1 | awk '{print $NF}')
+          echo "keystore: $want"; echo "apk:      $got"
+          test "$want" = "$got"
 
       - uses: actions/upload-artifact@v4
         with:

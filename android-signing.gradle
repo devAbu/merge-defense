@@ -1,0 +1,14 @@
+// Gradle init script: sign the debug build with the fixed keystore in /keystore
+allprojects {
+  afterEvaluate { p ->
+    if (p.plugins.hasPlugin('com.android.application')) {
+      p.android.signingConfigs.debug {
+        storeFile = new File(p.rootDir, '../keystore/debug.keystore')
+        storePassword = 'android'
+        keyAlias = 'androiddebugkey'
+        keyPassword = 'android'
+      }
+      p.android.buildTypes.debug.signingConfig = p.android.signingConfigs.debug
+    }
+  }
+}
