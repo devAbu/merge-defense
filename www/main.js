@@ -50,7 +50,7 @@
   let newBest = false;
   let overAt = 0;
   let clock = 0;
-  const VERSION = 'v3.1 eksperiment';
+  const VERSION = 'v3.1';
   const SND = window.Snd || { unlock() {}, play() {}, setMode() {}, duck() {}, suspend() {}, resume() {}, toggleSfx() { return false; }, toggleMusic() { return false; }, sfxOn: false, musicOn: false };
 
   function say(msg) { toast = { t: 1.8, msg }; }
