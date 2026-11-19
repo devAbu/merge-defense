@@ -14,6 +14,7 @@
   const ECO_MULT = 2.2;     // miner income multiplier per tier
   const BASE_SPEED = 42;
   const WAVE_TIME = 26;
+  const AUTO_TIME = 60, AUTO_CD = 15, AUTO_TICK = 0.4;
 
   const PATH = [[-20, 92], [310, 92], [310, 162], [50, 162], [50, 232], [336, 232]];
   const SEG = [];
@@ -103,6 +104,10 @@
     return { dmg, rate: T.rate, dps: dmg * T.rate, slow: T.slow || 0, splash: T.splash || 0 };
   }
 
+  function ev(s, k, x) {
+    if (s.events.length < 200) s.events.push(x ? Object.assign({ k }, x) : { k });
+  }
+
   function create(modeKey) {
     const m = MODES[modeKey] || MODES.normal;
     const s = {
@@ -110,7 +115,8 @@
       queue: [], nextQ: [], spawnCd: 0, enemies: [], slots: new Array(NSLOTS).fill(null),
       bought: { archer: 0, gunner: 0, cannon: 0, mage: 0, sniper: 0, miner: 0 },
       proj: [], texts: [], rings: [], sparks: [],
-      announce: null, hurt: 0, over: false, time: 0, kills: 0, nextId: 1
+      announce: null, hurt: 0, over: false, time: 0, kills: 0, nextId: 1,
+      events: [], autoT: 0, autoCd: 0, autoTick: 0
     };
     s.nextQ = buildWave(1);
     return s;
@@ -143,6 +149,7 @@
     s.slots[slot] = { type, tier: 1, cd: 0.4, val: c, flash: 0, aim: 0, acc: 0 };
     const p = slotPos(slot);
     s.rings.push({ x: p[0], y: p[1], t: 0, c: '#ffffff', r: 34, life: 0.35 });
+    ev(s, 'buy');
     return slot;
   }
 
@@ -161,6 +168,7 @@
       const p = slotPos(b);
       s.rings.push({ x: p[0], y: p[1], t: 0, c: '#ffd84a', r: 44, life: 0.45 });
       s.texts.push({ x: p[0], y: p[1] - 20, t: 0, s: 'Nivo ' + B.tier + '!', c: '#ffd84a', size: 15, life: 0.9 });
+      ev(s, 'merge', { tier: B.tier });
       return 'merge';
     }
     const t = s.slots[a]; s.slots[a] = s.slots[b]; s.slots[b] = t;
@@ -173,6 +181,7 @@
     const gain = Math.floor(u.val * 0.5);
     s.coins += gain;
     s.slots[a] = null;
+    ev(s, 'sell');
     return gain;
   }
 
@@ -202,6 +211,8 @@
     s.queue = s.queue.concat(s.nextQ);
     s.nextQ = buildWave(s.wave + 1);
     s.waveTimer = WAVE_TIME;
+    ev(s, 'wave');
+    if (isBossWave(s.wave)) ev(s, 'boss'); else if (bossNext(s)) ev(s, 'bossWarn');
     if (isBossWave(s.wave)) s.announce = { text: '👹 BOSS!', sub: 'Snajper najbolje gađa najjačeg', t: 0, life: 2.6, color: '#ff5a5a' };
     else if (bossNext(s)) s.announce = { text: '⚠️ BOSS ZA SLJEDEĆI TALAS', sub: 'Pripremi snajpere i jače vojnike', t: 0, life: 2.6, color: '#ffb347' };
   }
@@ -221,6 +232,7 @@
   function spawn(s, kind) {
     const e = ENEMIES[kind];
     const hp = hpFor(s, kind);
+    if (kind === 'boss') ev(s, 'bossSpawn');
     s.enemies.push({
       id: s.nextId++, kind, hp, max: hp, pend: 0, d: 0, x: PATH[0][0], y: PATH[0][1],
       spd: BASE_SPEED * e.spd, reward: e.rew * 1.3 * (1 + 0.12 * s.wave) * s.mode.reward, dmg: e.dmg,
@@ -244,6 +256,7 @@
       s.kills++;
       s.texts.push({ x: e.x, y: e.y - 16, t: 0, s: '+' + fmtReward(e.reward) + ' 🪙', c: '#ffd84a', size: 13, life: 0.9 });
       s.sparks.push({ x: e.x, y: e.y, t: 0, c: '#ffd84a', life: 0.3, big: true });
+      ev(s, 'kill', { boss: e.kind === 'boss' });
     }
   }
 
@@ -296,8 +309,19 @@
         const p = slotPos(i);
         s.texts.push({ x: p[0], y: p[1] - 24, t: 0, s: '+' + n + ' 🪙', c: '#7ff0e6', size: 13, life: 0.9 });
         u.flash = 0.18;
+        ev(s, 'coin');
       }
       if (u.flash > 0) u.flash -= dt;
+    }
+
+    // auto-merge power-up (rewarded-ad feature): merges pairs by itself while active
+    if (s.autoT > 0) {
+      s.autoT -= dt;
+      s.autoTick -= dt;
+      if (s.autoTick <= 0) { s.autoTick = AUTO_TICK; autoMergeStep(s); }
+      if (s.autoT <= 0) { s.autoT = 0; s.autoCd = AUTO_CD; }
+    } else if (s.autoCd > 0) {
+      s.autoCd = Math.max(0, s.autoCd - dt);
     }
 
     // waves
@@ -322,6 +346,7 @@
         e.dead = true; e.leaked = true;
         s.lives -= e.dmg;
         s.hurt = 0.4;
+        ev(s, 'leak');
         s.texts.push({ x: 322, y: e.y - 18, t: 0, s: '-' + e.dmg + ' ❤️', c: '#ff7b7b', size: 15, life: 0.9 });
       }
     }
@@ -346,6 +371,7 @@
       });
       u.flash = 0.14;
       u.aim = Math.atan2(target.y - sp[1], target.x - sp[0]);
+      ev(s, 'shot', { type: u.type });
       u.cd += 1 / st.rate;
       if (u.cd < -0.2) u.cd = 0;
     }
@@ -377,47 +403,132 @@
     if (s.announce) { s.announce.t += dt; if (s.announce.t > s.announce.life) s.announce = null; }
     if (s.hurt > 0) s.hurt -= dt;
 
-    if (s.lives <= 0) { s.lives = 0; s.over = true; }
+    if (s.lives <= 0) { s.lives = 0; s.over = true; ev(s, 'over'); }
   }
 
-  // ---------- advice: what to add / do next ----------
+  // ---------- auto-merge ----------
+  function autoMergeStep(s) {
+    let bi = -1, bj = -1, bt = 99;
+    for (let i = 0; i < NSLOTS; i++)
+      for (let j = i + 1; j < NSLOTS; j++)
+        if (canMerge(s, i, j) && s.slots[i].tier < bt) { bt = s.slots[i].tier; bi = i; bj = j; }
+    if (bi < 0) return false;
+    move(s, bi, bj);
+    return true;
+  }
+  function activateAuto(s) {
+    if (s.over || s.autoT > 0 || s.autoCd > 0) return false;
+    s.autoT = AUTO_TIME; s.autoTick = 0.2;
+    ev(s, 'auto');
+    return true;
+  }
+  // { state: 'ready'|'active'|'cooldown', left: seconds, frac: 0..1 }
+  function autoInfo(s) {
+    if (s.autoT > 0) return { state: 'active', left: s.autoT, frac: s.autoT / AUTO_TIME };
+    if (s.autoCd > 0) return { state: 'cooldown', left: s.autoCd, frac: s.autoCd / AUTO_CD };
+    return { state: 'ready', left: 0, frac: 1 };
+  }
+
+  // ---------- advice: what to buy / what to sell ----------
+  const BONUS = { archer: 1, gunner: 1, cannon: 1.5, mage: 1.3, sniper: 1.1 };
+  const ATTACKERS = ['archer', 'gunner', 'cannon', 'mage', 'sniper'];
+
+  function boardInfo(s, skip) {
+    const counts = { archer: 0, gunner: 0, cannon: 0, mage: 0, sniper: 0, miner: 0 };
+    const t1 = { archer: 0, gunner: 0, cannon: 0, mage: 0, sniper: 0, miner: 0 };
+    const t2 = { archer: 0, gunner: 0, cannon: 0, mage: 0, sniper: 0, miner: 0 };
+    let free = 0;
+    for (let i = 0; i < NSLOTS; i++) {
+      const u = s.slots[i];
+      if (!u || i === skip) { free++; continue; }
+      counts[u.type]++;
+      if (u.tier === 1) t1[u.type]++;
+      if (u.tier === 2) t2[u.type]++;
+    }
+    return { counts, t1, t2, free };
+  }
+
+  // Best thing to buy, given free slots, existing levels and merge chances.
+  function bestBuy(s, b, free) {
+    let nE = 0, nRun = 0, nTank = 0;
+    for (const e of s.enemies) { nE++; if (e.kind === 'runner') nRun++; else if (e.kind === 'tank') nTank++; }
+    const attackers = ATTACKERS.reduce((a, k) => a + b.counts[k], 0);
+    let best = null;
+    for (const k of TYPE_KEYS) {
+      const T = TYPES[k];
+      const c = cost(s, k);
+      let v, why = '';
+      if (k === 'miner') {
+        const tf = Math.max(0.15, 1 - s.wave / 14);
+        const cnt = b.counts.miner;
+        v = 0.5 * tf * (cnt === 0 ? 2.2 : cnt === 1 ? 1.4 : cnt < 4 ? 0.8 : 0.3);
+        if (attackers < 2) v *= 0.2;
+        why = 'Rudar proizvodi 🪙 — što ranije, to više zaradi.';
+      } else {
+        v = (T.dmg * T.rate * BONUS[k]) / c / (1 + 0.4 * b.counts[k]);
+        why = 'Najisplativije sada: ' + T.name + ' (DPS ' + fmt(T.dmg * T.rate) + ' za ' + c + ' 🪙).';
+        if (k === 'sniper' && bossNext(s) && b.counts.sniper === 0 && s.wave >= 3) { v *= 3; why = 'Boss stiže — Snajper gađa najjačeg i radi ogromnu štetu.'; }
+        else if (k === 'sniper' && nTank >= 2 && b.counts.sniper < 1) { v *= 1.6; why = 'Tenkovi su debeli — Snajper ih najbolje probija.'; }
+        if (k === 'cannon' && nE >= 6 && b.counts.cannon < 2) { v *= 1.4; why = 'Puno neprijatelja na putu — Top pogađa više njih odjednom.'; }
+        if (k === 'mage' && nRun >= 3 && b.counts.mage === 0) { v *= 1.8; why = 'Brzi neprijatelji — Čarobnjak ih usporava za 40%.'; }
+      }
+      // Merge chance: an unpaired level-1 unit of the same type exists, so buying one more merges at once
+      const merges = b.t1[k] >= 1;
+      if (merges) {
+        v *= 1.7;
+        if (b.t2[k] >= 1) v *= 1.15;
+        why = 'Kupi ' + T.name + ' — spaja se s tvojim ' + T.name + 'om (nivo 1) u nivo 2 i ne zauzima novo mjesto.';
+      } else if (free <= 1) v *= 0.45;
+      else if (free === 2) v *= 0.65;
+      else if (free === 3) v *= 0.85;
+      if (!best || v > best.v) best = { type: k, v, why, merges, cost: c };
+    }
+    return best;
+  }
+
+  // How valuable a unit is to keep (higher = keep). Used to pick what to sell.
+  function unitWorth(s, u, counts) {
+    let w;
+    if (u.type === 'miner') {
+      w = stats('miner', u.tier).income * s.mode.income * 25 * (s.wave < 12 ? 1.5 : s.wave < 20 ? 1 : 0.6);
+    } else {
+      w = stats(u.type, u.tier).dps * BONUS[u.type];
+      if (u.type === 'sniper' && bossNext(s)) w *= 2;
+    }
+    if (counts[u.type] === 1) w *= 1.35; // last of its kind keeps variety
+    return w;
+  }
+
   function advise(s) {
     for (let i = 0; i < NSLOTS; i++)
       for (let j = i + 1; j < NSLOTS; j++)
         if (canMerge(s, i, j)) {
           const u = s.slots[i];
-          return { kind: 'merge', a: i, b: j, text: 'Spoji 2× ' + TYPES[u.type].name + ' (nivo ' + u.tier + ') u nivo ' + (u.tier + 1) + ' — jači je od dva odvojena.' };
+          return { kind: 'merge', a: i, b: j, text: 'Spoji 2× ' + TYPES[u.type].name + ' (nivo ' + u.tier + ') u nivo ' + (u.tier + 1) + ' — jači je od dva odvojena i oslobađa mjesto.' };
         }
-    let empty = 0;
-    const counts = { archer: 0, gunner: 0, cannon: 0, mage: 0, sniper: 0, miner: 0 };
-    for (const u of s.slots) { if (!u) empty++; else counts[u.type]++; }
-    if (empty === 0) return { kind: 'full', text: 'Nema mjesta! Prodaj najslabijeg (povuci dolje) ili spoji ostale.' };
+    const b = boardInfo(s, -1);
 
-    const attackers = counts.archer + counts.gunner + counts.cannon + counts.mage + counts.sniper;
-    let want = null, why = '';
-    let nRun = 0, nTank = 0;
-    for (const e of s.enemies) { if (e.kind === 'runner') nRun++; else if (e.kind === 'tank') nTank++; }
-
-    if (bossNext(s) && counts.sniper === 0 && s.wave >= 3) { want = 'sniper'; why = 'Boss stiže — Snajper gađa najjačeg i radi ogromnu štetu.'; }
-    else if (counts.miner === 0 && s.wave < 10) { want = 'miner'; why = 'Rudar proizvodi 🪙 — što ranije kupiš, više zaradi.'; }
-    else if (counts.miner < 2 && s.wave < 6 && attackers >= 3) { want = 'miner'; why = 'Drugi Rudar ubrzava ekonomiju dok je rano.'; }
-    else if (s.enemies.length >= 6 && counts.cannon < 2) { want = 'cannon'; why = 'Puno neprijatelja na putu — Top pogađa više njih odjednom.'; }
-    else if (nRun >= 3 && counts.mage === 0) { want = 'mage'; why = 'Brzi neprijatelji — Čarobnjak ih usporava za 40%.'; }
-    else if (nTank >= 2 && counts.sniper < 1) { want = 'sniper'; why = 'Tenkovi su debeli — Snajper ih najbolje probija.'; }
-    else {
-      let bv = -1;
-      const bonus = { archer: 1, gunner: 1, cannon: 1.8, mage: 1.5, sniper: 1.1 };
-      for (const k of ['archer', 'gunner', 'cannon', 'mage', 'sniper']) {
-        const T = TYPES[k];
-        const v = (T.dmg * T.rate * bonus[k]) / cost(s, k) / (1 + 0.4 * counts[k]);
-        if (v > bv) { bv = v; want = k; }
+    if (b.free === 0) {
+      // Board full and nothing to merge: say exactly which unit to sell and what to buy after
+      let wi = -1, ww = Infinity;
+      for (let i = 0; i < NSLOTS; i++) {
+        const w = unitWorth(s, s.slots[i], b.counts);
+        if (w < ww) { ww = w; wi = i; }
       }
-      const T = TYPES[want];
-      why = 'Najisplativije sada: ' + T.name + ' (DPS ' + fmt(T.dmg * T.rate) + ' za ' + cost(s, want) + ' 🪙).';
+      const u = s.slots[wi];
+      const T = TYPES[u.type];
+      const after = bestBuy(s, boardInfo(s, wi), 1);
+      const half = Math.floor(u.val * 0.5);
+      const val = u.type === 'miner' ? '+' + (stats('miner', u.tier).income * s.mode.income).toFixed(2) + ' 🪙/s' : 'DPS ' + fmt(stats(u.type, u.tier).dps);
+      let text = 'Nema mjesta. Prodaj ' + T.name + ' (nivo ' + u.tier + ') — najmanje vrijedan (' + val + '), vraća +' + half + ' 🪙. Zatim kupi ' + TYPES[after.type].name + '.';
+      return { kind: 'sell', slot: wi, type: after.type, text };
     }
-    const c = cost(s, want);
-    if (s.coins < c) why += ' Fali još ' + Math.ceil(c - s.coins) + ' 🪙.';
-    return { kind: 'buy', type: want, text: why };
+
+    const best = bestBuy(s, b, b.free);
+    let text = best.why;
+    if (!best.merges && b.free <= 3) text += ' Slobodnih mjesta: ' + b.free + '.';
+    if (s.coins < best.cost) text += ' Fali još ' + Math.ceil(best.cost - s.coins) + ' 🪙.';
+    return { kind: 'buy', type: best.type, merges: best.merges, text };
   }
 
   function fmt(n) {
@@ -447,11 +558,22 @@
     if (s.coins >= cost(s, pick)) buy(s, pick);
   }
 
+  // Bot that follows the in-game advice (tests the advisor itself)
+  function botSmart(s) {
+    const a = advise(s);
+    if (a.kind === 'merge') { move(s, a.a, a.b); return; }
+    if (a.kind === 'sell') {
+      if (s.coins + Math.floor(s.slots[a.slot].val * 0.5) >= cost(s, a.type)) { sell(s, a.slot); buy(s, a.type); }
+      return;
+    }
+    if (s.coins >= cost(s, a.type)) buy(s, a.type);
+  }
+
   const Core = {
     W, H, COLS, ROWS, NSLOTS, CELL, PITCH, GRID_X, GRID_Y, PANEL_Y, PANEL_H, SHOP_Y, SHOP_BH, MAXTIER, LEN, PATH,
     TYPES, TYPE_KEYS, ENEMIES, MODES, MODE_KEYS,
     posAt, slotPos, slotAt, shopRect, stats, create, cost, income, passiveIncome, minerIncome, earlyBonus,
-    isBossWave, bossNext, previewCounts, buy, canMerge, move, sell, callWave, update, advise, fmt, bot
+    isBossWave, bossNext, previewCounts, buy, canMerge, move, sell, callWave, update, advise, fmt, bot, botSmart, activateAuto, autoInfo, AUTO_TIME, AUTO_CD
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = Core;
   else root.Core = Core;

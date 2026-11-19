@@ -46,6 +46,8 @@
   let newBest = false;
   let overAt = 0;
   let clock = 0;
+  const VERSION = 'v3 eksperiment';
+  const SND = window.Snd || { unlock() {}, play() {}, setMode() {}, duck() {}, suspend() {}, resume() {}, toggleSfx() { return false; }, toggleMusic() { return false; }, sfxOn: false, musicOn: false };
 
   function say(msg) { toast = { t: 1.8, msg }; }
 
@@ -165,10 +167,23 @@
       const r = C.buy(s, id.slice(4));
       if (r === -2) say('Nema slobodnog mjesta! Spoji ili prodaj.');
       else if (r === -3) say('Nemaš dovoljno novčića 🪙');
-      else if (r >= 0) sel = r;
+      else if (r >= 0) sel = -1; // keep advice panel visible
+      if (r < 0) SND.play('error');
       return;
     }
     switch (id) {
+      case 'tmusic': SND.toggleMusic(); break;
+      case 'tsfx': SND.toggleSfx(); break;
+      case 'auto': {
+        if (C.activateAuto(s)) say('⚡ Auto-spajanje uključeno 60s');
+        else SND.play('error');
+        break;
+      }
+      case 'sellAdv': {
+        const a = C.advise(s);
+        if (a.kind === 'sell') { const g = C.sell(s, a.slot); if (g > 0) say('Prodano +' + g + ' 🪙'); if (sel === a.slot) sel = -1; }
+        break;
+      }
       case 'pause': scene = 'pause'; break;
       case 'resume': scene = 'play'; break;
       case 'menu': scene = 'menu'; break;
@@ -192,8 +207,9 @@
   canvas.addEventListener('pointerdown', function (e) {
     e.preventDefault();
     const [x, y] = toLogical(e);
+    SND.unlock();
     const id = hitButton(x, y);
-    if (id) { act(id); return; }
+    if (id) { if (id !== 'tsfx' && id !== 'auto' && !id.startsWith('buy:')) SND.play('click'); act(id); return; }
     if (scene !== 'play') return;
     const i = C.slotAt(x, y);
     if (i >= 0 && s.slots[i]) {
@@ -235,6 +251,7 @@
   canvas.addEventListener('contextmenu', function (e) { e.preventDefault(); });
   document.addEventListener('visibilitychange', function () {
     hidden = document.hidden;
+    if (hidden) SND.suspend(); else SND.resume();
     if (hidden && scene === 'play') scene = 'pause';
   });
 
@@ -349,7 +366,7 @@
     const y = 266, h = 36;
     const boss = C.bossNext(s) || C.isBossWave(s.wave) && s.queue.length > 0;
     const pulse = 0.5 + 0.5 * Math.sin(clock * 6);
-    rr(8, y, 180, h, 12);
+    rr(8, y, 178, h, 12);
     ctx.fillStyle = boss ? 'rgba(255,90,60,' + (0.16 + 0.16 * pulse) + ')' : 'rgba(255,255,255,0.05)';
     ctx.fill();
     ctx.lineWidth = 1;
@@ -377,10 +394,30 @@
 
     const can = s.waveTimer > 3 && !s.over;
     const eb = C.earlyBonus(s);
-    button('call', 196, y + 2, 156, 32, {
-      label: '▶ Pozovi' + (eb > 0 ? '  +' + eb + ' 🪙' : ''), size: 13, c1: can ? '#ffcf4a' : '#4a5270', c2: can ? '#e69a1a' : '#363c57',
-      color: can ? '#2a1c00' : '#8c93ad', stroke: 'rgba(255,255,255,0.25)', r: 14
+    button('call', 192, y + 2, 82, 32, {
+      c1: can ? '#ffcf4a' : '#4a5270', c2: can ? '#e69a1a' : '#363c57', stroke: 'rgba(255,255,255,0.25)', r: 13
     });
+    text('▶ Pozovi', 233, y + (eb > 0 ? 12 : 19), 12, can ? '#2a1c00' : '#8c93ad', 'center', '800');
+    if (eb > 0) text('+' + eb + '🪙', 233, y + 26, 10, can ? '#5a3a00' : '#8c93ad', 'center', '800');
+
+    // auto-merge (rewarded video placeholder)
+    const ai = C.autoInfo(s);
+    const ax = 280, aw = 72, ay = y + 2, ah = 32;
+    const mmss = v => Math.floor(Math.ceil(v) / 60) + ':' + String(Math.ceil(v) % 60).padStart(2, '0');
+    if (ai.state === 'ready') {
+      button('auto', ax, ay, aw, ah, { r: 13, c1: '#8b5cf6', c2: '#5b34c9', stroke: 'rgba(200,170,255,0.6)' });
+      text('🎬 Auto', ax + aw / 2, ay + 12, 12, '#fff', 'center', '800');
+      text('video · 60s', ax + aw / 2, ay + 25, 9, '#d9ccff', 'center', '700');
+    } else if (ai.state === 'active') {
+      button('auto_', ax, ay, aw, ah, { r: 13, c1: '#1f7a4a', c2: '#14563a', stroke: 'rgba(120,255,180,0.6)' });
+      text('⚡ ' + mmss(ai.left), ax + aw / 2, ay + 14, 13, '#eafff3', 'center', '800');
+      rr(ax + 8, ay + 24, aw - 16, 4, 2); ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fill();
+      rr(ax + 8, ay + 24, Math.max(2, (aw - 16) * ai.frac), 4, 2); ctx.fillStyle = '#7dffb4'; ctx.fill();
+    } else {
+      button('auto_', ax, ay, aw, ah, { r: 13, c1: '#3a4060', c2: '#2a2f48', dim: true });
+      text('⏳ ' + mmss(ai.left), ax + aw / 2, ay + 14, 13, '#aab2d0', 'center', '800');
+      text('auto-spoj', ax + aw / 2, ay + 25, 9, '#7f88ab', 'center', '700');
+    }
   }
 
   function drawUnit(u, x, y, size, alpha, opts) {
@@ -452,6 +489,13 @@
         ctx.strokeStyle = 'rgba(255,216,74,' + (0.4 + 0.5 * pulse) + ')';
         ctx.lineWidth = 2.5; ctx.stroke();
       }
+    }
+    if (adv && adv.kind === 'sell' && !(drag && drag.moved)) {
+      const pulse = 0.5 + 0.5 * Math.sin(clock * 5);
+      const p = C.slotPos(adv.slot);
+      rr(p[0] - 33, p[1] - 33, 66, 66, 16);
+      ctx.strokeStyle = 'rgba(255,90,90,' + (0.45 + 0.5 * pulse) + ')';
+      ctx.lineWidth = 3; ctx.stroke();
     }
     // selection
     if (sel >= 0 && s.slots[sel]) {
@@ -583,9 +627,15 @@
       text('+' + Math.floor(u.val * 0.5) + ' 🪙', x + w - 42, y + 35, 11, '#ffe08a', 'center', '700');
     } else {
       emoji('💡', x + 22, y + 26, 20);
-      const lines = wrap(adv.text, w - 56, 11.5, '600').slice(0, 3);
-      const startY = y + h / 2 - (lines.length - 1) * 7;
-      lines.forEach((l, i) => text(l, x + 44, startY + i * 14, 11.5, adv.kind === 'buy' ? '#ffffff' : '#ffe08a', 'left', '600'));
+      const tw = adv.kind === 'sell' ? w - 56 - 70 : w - 56;
+      const lines = wrap(adv.text, tw, 11, '600').slice(0, 4);
+      const startY = y + h / 2 - (lines.length - 1) * 6.5;
+      lines.forEach((l, i) => text(l, x + 44, startY + i * 13, 11, adv.kind === 'buy' ? '#ffffff' : '#ffe08a', 'left', '600'));
+      if (adv.kind === 'sell') {
+        button('sellAdv', x + w - 74, y + 10, 66, h - 20, { r: 11, c1: 'rgba(255,90,90,0.4)', c2: 'rgba(255,90,90,0.18)', stroke: 'rgba(255,120,120,0.6)' });
+        text('Prodaj', x + w - 41, y + h / 2 - 7, 12, '#ffd0d0', 'center', '800');
+        text('+' + Math.floor(s.slots[adv.slot].val * 0.5) + ' 🪙', x + w - 41, y + h / 2 + 9, 11, '#ffe08a', 'center', '700');
+      }
     }
   }
 
@@ -596,7 +646,7 @@
       const r = C.shopRect(i);
       const cst = C.cost(s, k);
       const ok = s.coins >= cst && !s.over;
-      const rec = adv.kind === 'buy' && adv.type === k;
+      const rec = (adv.kind === 'buy' || adv.kind === 'sell') && adv.type === k;
       const pulse = 0.5 + 0.5 * Math.sin(clock * 4);
       button('buy:' + k, r.x, r.y, r.w, r.h, {
         r: 14, c1: selling ? '#5a2430' : ok ? T.c1 : '#2a3150', c2: selling ? '#3b1721' : ok ? T.c2 : '#1f2540',
@@ -687,8 +737,18 @@
     ctx.fillText('DEFENSE', C.W / 2, y + 46);
   }
 
+  function drawToggles(x, y, w) {
+    w = w || 40;
+    button('tmusic', x, y, w, 34, { r: 12, c1: SND.musicOn ? 'rgba(110,160,255,0.35)' : 'rgba(255,255,255,0.06)', c2: SND.musicOn ? 'rgba(110,160,255,0.2)' : 'rgba(255,255,255,0.03)' });
+    text(SND.musicOn ? '🎵' : '🔇', x + w / 2, y + 18, 17, '#fff', 'center', '700');
+    button('tsfx', x + w + 8, y, w, 34, { r: 12, c1: SND.sfxOn ? 'rgba(110,160,255,0.35)' : 'rgba(255,255,255,0.06)', c2: SND.sfxOn ? 'rgba(110,160,255,0.2)' : 'rgba(255,255,255,0.03)' });
+    text(SND.sfxOn ? '🔊' : '🔈', x + w + 8 + w / 2, y + 18, 17, '#fff', 'center', '700');
+    if (!SND.sfxOn) { ctx.strokeStyle = '#ff7b7b'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x + w + 14, y + 26); ctx.lineTo(x + 2 * w + 2, y + 8); ctx.stroke(); }
+  }
+
   function drawMenu() {
     drawBackground();
+    drawToggles(10, 12);
     titleText(92);
     text('Spajaj vojnike. Brani put. Pobijedi bosa.', C.W / 2, 176, 12.5, '#9fb0d8', 'center', '600');
     text('Izaberi težinu', C.W / 2, 214, 13, '#dfe7ff', 'center', '800');
@@ -708,7 +768,7 @@
       text(best[k] ? 'Talas ' + best[k] : '—', 318, y + 50, 15, col, 'right', '800');
     });
     button('guide', 70, 560, 220, 44, { label: '📖  Vodič kroz jedinice', size: 14, r: 22 });
-    text('Radi bez interneta · v2', C.W / 2, 640, 10.5, '#5d6a92', 'center', '600');
+    text('Radi bez interneta · ' + VERSION, C.W / 2, 640, 10.5, '#5d6a92', 'center', '600');
   }
 
   function drawGuide() {
@@ -749,13 +809,15 @@
   function drawPause() {
     drawGame();
     dim(0.72);
-    card(40, 190, 280, 330, 22, 'rgba(18,24,48,0.95)', 'rgba(255,255,255,0.14)');
-    text('PAUZA', C.W / 2, 228, 22, '#fff', 'center', '900');
-    text(C.MODES[modeKey].emoji + ' ' + C.MODES[modeKey].name + ' · Talas ' + s.wave, C.W / 2, 256, 12, '#9fb0d8', 'center', '600');
-    button('resume', 62, 280, 236, 46, { label: '▶  Nastavi', size: 15, r: 23, c1: '#6aa0ff', c2: '#4a6fe0' });
-    button('guide', 62, 336, 236, 42, { label: '📖  Vodič', size: 14, r: 21 });
-    button('restart', 62, 388, 236, 42, { label: '↻  Počni ispočetka', size: 14, r: 21 });
-    button('menu', 62, 440, 236, 42, { label: '☰  Glavni meni', size: 14, r: 21 });
+    card(40, 180, 280, 390, 22, 'rgba(18,24,48,0.95)', 'rgba(255,255,255,0.14)');
+    text('PAUZA', C.W / 2, 218, 22, '#fff', 'center', '900');
+    text(C.MODES[modeKey].emoji + ' ' + C.MODES[modeKey].name + ' · Talas ' + s.wave, C.W / 2, 246, 12, '#9fb0d8', 'center', '600');
+    button('resume', 62, 270, 236, 46, { label: '▶  Nastavi', size: 15, r: 23, c1: '#6aa0ff', c2: '#4a6fe0' });
+    button('guide', 62, 326, 236, 42, { label: '📖  Vodič', size: 14, r: 21 });
+    button('restart', 62, 378, 236, 42, { label: '↻  Počni ispočetka', size: 14, r: 21 });
+    button('menu', 62, 430, 236, 42, { label: '☰  Glavni meni', size: 14, r: 21 });
+    text('Zvuk', C.W / 2, 494, 11, '#8493bd', 'center', '700');
+    drawToggles(C.W / 2 - 44, 508, 40);
   }
 
   function drawOver() {
@@ -799,10 +861,14 @@
     if (toast.t > 0) toast.t -= dt;
     if (scene === 'play' && !hidden) {
       C.update(s, dt);
+      for (const e of s.events) SND.play(e.k, e);
+      s.events.length = 0;
       if (sel >= 0 && !s.slots[sel]) sel = -1;
       if (s.wave > best[modeKey]) { best[modeKey] = s.wave; save('md2_best_' + modeKey, String(s.wave)); newBest = s.wave > 1; }
       if (s.over) { scene = 'over'; overAt = now; drag = null; }
     }
+    SND.setMode(scene === 'play' || scene === 'pause' ? (C.isBossWave(s.wave) && s.queue.length ? 'boss' : 'play') : scene === 'over' ? 'off' : 'menu');
+    SND.duck(scene === 'pause');
     draw();
     requestAnimationFrame(frame);
   }

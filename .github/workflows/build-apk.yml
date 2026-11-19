@@ -2,7 +2,7 @@ name: Build APK
 
 on:
   push:
-    branches: [main]
+    branches: ['**']
   workflow_dispatch:
 
 permissions:
@@ -29,6 +29,12 @@ jobs:
 
       - name: Balance sanity check
         run: node tools/sim.js 3
+
+      - name: Dev build settings (non-main branches)
+        if: github.ref != 'refs/heads/main'
+        run: |
+          sed -i 's|"appId": *"[^"]*"|"appId": "com.devabu.mergedefense.dev"|; s|"appName": *"[^"]*"|"appName": "Merge Defense Dev"|' capacitor.config.json
+          cat capacitor.config.json
 
       - name: Generate Android project
         run: npx cap add android
@@ -58,7 +64,19 @@ jobs:
           name: merge-defense-apk
           path: merge-defense.apk
 
+      - name: Publish Dev Release (non-main branches)
+        if: github.ref != 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp merge-defense.apk merge-defense-dev.apk
+          gh release create "dev-${{ github.run_number }}" merge-defense-dev.apk \
+            --target "${{ github.sha }}" --prerelease \
+            --title "Merge Defense DEV #${{ github.run_number }} (${{ github.ref_name }})" \
+            --notes "Eksperimentalna verzija (grana ${{ github.ref_name }}). Instalira se pored originala, ima svoje rekorde."
+
       - name: Publish Release
+        if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
