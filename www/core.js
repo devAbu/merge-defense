@@ -15,6 +15,7 @@
   const BASE_SPEED = 42;
   const WAVE_TIME = 26;
   const AUTO_TIME = 60, AUTO_CD = 15, AUTO_TICK = 0.4;
+  const DBL_TIME = 60, DBL_CD = 15;
 
   const PATH = [[-20, 92], [310, 92], [310, 162], [50, 162], [50, 232], [336, 232]];
   const SEG = [];
@@ -71,6 +72,14 @@
     tank: { name: 'Tenk', emoji: '🐗', hp: 3.2, spd: 0.65, rew: 2.5, dmg: 1 },
     boss: { name: 'BOSS', emoji: '👹', hp: 22, spd: 0.55, rew: 20, dmg: 3 }
   };
+  // Boss variety: every 10th wave a different boss with its own mechanic
+  const BOSSES = [
+    { key: 'golem', name: 'Golem', emoji: '🗿', hp: 22, spd: 0.5, rew: 20, armor: 0.72, info: 'Kamena koža: prima 28% manje štete.' },
+    { key: 'drake', name: 'Zmaj', emoji: '🐉', hp: 15, spd: 1.05, rew: 24, info: 'Brz i opasan — jaka šteta odmah.' },
+    { key: 'guard', name: 'Čuvar', emoji: '🧙‍♂️', hp: 21, spd: 0.55, rew: 22, regen: 0.025, info: 'Liječi se 2.5% zdravlja u sekundi.' },
+    { key: 'necro', name: 'Nekromant', emoji: '💀', hp: 18, spd: 0.55, rew: 24, summon: 3.5, info: 'Poziva zombije dok ide putem.' }
+  ];
+  function bossVariant(w) { return Math.floor(w / 10 - 1) % BOSSES.length; }
 
   const MODES = {
     easy: { key: 'easy', name: 'Lagano', emoji: '🌱', coins: 30, lives: 15, hp: 0.65, income: 1.3, reward: 1.15 },
@@ -108,10 +117,12 @@
     if (s.events.length < 200) s.events.push(x ? Object.assign({ k }, x) : { k });
   }
 
-  function create(modeKey) {
+  function create(modeKey, meta) {
     const m = MODES[modeKey] || MODES.normal;
+    meta = meta || {};
     const s = {
-      mode: m, coins: m.coins, lives: m.lives, wave: 0, waveTimer: 8,
+      mode: m, coins: m.coins + (meta.coins || 0), lives: m.lives + (meta.lives || 0),
+      incMul: meta.inc || 1, dmgMul: meta.dmg || 1, revived: false, bossKills: 0, dblT: 0, dblCd: 0, wave: 0, waveTimer: 8,
       queue: [], nextQ: [], spawnCd: 0, enemies: [], slots: new Array(NSLOTS).fill(null),
       bought: { archer: 0, gunner: 0, cannon: 0, mage: 0, sniper: 0, miner: 0 },
       proj: [], texts: [], rings: [], sparks: [],
@@ -131,7 +142,8 @@
     for (const u of s.slots) if (u && u.type === 'miner') t += stats('miner', u.tier).income;
     return t * s.mode.income;
   }
-  function income(s) { return passiveIncome(s) + minerIncome(s); }
+  function mult(s) { return s.incMul * (s.dblT > 0 ? 2 : 1); }
+  function income(s) { return (passiveIncome(s) + minerIncome(s)) * mult(s); }
   function earlyBonus(s) { return Math.max(0, Math.floor(s.waveTimer / 4)); }
   function isBossWave(w) { return w > 0 && w % 10 === 0; }
   function bossNext(s) { return isBossWave(s.wave + 1); }
@@ -213,8 +225,8 @@
     s.waveTimer = WAVE_TIME;
     ev(s, 'wave');
     if (isBossWave(s.wave)) ev(s, 'boss'); else if (bossNext(s)) ev(s, 'bossWarn');
-    if (isBossWave(s.wave)) s.announce = { text: '👹 BOSS!', sub: 'Snajper najbolje gađa najjačeg', t: 0, life: 2.6, color: '#ff5a5a' };
-    else if (bossNext(s)) s.announce = { text: '⚠️ BOSS ZA SLJEDEĆI TALAS', sub: 'Pripremi snajpere i jače vojnike', t: 0, life: 2.6, color: '#ffb347' };
+    if (isBossWave(s.wave)) s.announce = { text: BOSSES[bossVariant(s.wave)].emoji + ' BOSS: ' + BOSSES[bossVariant(s.wave)].name + '!', sub: BOSSES[bossVariant(s.wave)].info, t: 0, life: 2.6, color: '#ff5a5a' };
+    else if (bossNext(s)) s.announce = { text: '⚠️ BOSS ZA SLJEDEĆI TALAS', sub: BOSSES[bossVariant(s.wave + 1)].emoji + ' ' + BOSSES[bossVariant(s.wave + 1)].name + ': ' + BOSSES[bossVariant(s.wave + 1)].info, t: 0, life: 2.6, color: '#ffb347' };
   }
 
   function callWave(s) {
@@ -230,14 +242,22 @@
   }
 
   function spawn(s, kind) {
-    const e = ENEMIES[kind];
-    const hp = hpFor(s, kind);
+    let e = ENEMIES[kind];
+    let bv = null;
+    if (kind === 'boss') { bv = BOSSES[bossVariant(s.wave)]; e = Object.assign({}, e, { hp: bv.hp, spd: bv.spd, rew: bv.rew }); }
+    const hp = hpFor(s, kind) * (bv ? bv.hp / ENEMIES.boss.hp : 1);
     if (kind === 'boss') ev(s, 'bossSpawn');
-    s.enemies.push({
+    const en = {
       id: s.nextId++, kind, hp, max: hp, pend: 0, d: 0, x: PATH[0][0], y: PATH[0][1],
       spd: BASE_SPEED * e.spd, reward: e.rew * 1.3 * (1 + 0.12 * s.wave) * s.mode.reward, dmg: e.dmg,
       slowT: 0, slowF: 0, hit: 0
-    });
+    };
+    if (bv) {
+      en.variant = bossVariant(s.wave); en.emoji = bv.emoji; en.bname = bv.name;
+      en.armor = bv.armor || 0; en.regen = bv.regen || 0; en.summon = bv.summon || 0; en.sumT = bv.summon || 0;
+    }
+    s.enemies.push(en);
+    return en;
   }
 
   // ---------- combat ----------
@@ -245,6 +265,7 @@
 
   function hit(s, e, dmg, showNum) {
     if (e.dead) return;
+    if (e.armor) dmg *= e.armor;
     e.hp -= dmg;
     e.hit = 0.09;
     if (showNum && s.texts.length < 50) {
@@ -252,11 +273,13 @@
     }
     if (e.hp <= 0) {
       e.dead = true;
-      s.coins += e.reward;
+      const rw = e.reward * mult(s);
+      s.coins += rw;
       s.kills++;
-      s.texts.push({ x: e.x, y: e.y - 16, t: 0, s: '+' + fmtReward(e.reward) + ' 🪙', c: '#ffd84a', size: 13, life: 0.9 });
+      s.texts.push({ x: e.x, y: e.y - 16, t: 0, s: '+' + fmtReward(rw) + ' 🪙', c: '#ffd84a', size: 13, life: 0.9 });
       s.sparks.push({ x: e.x, y: e.y, t: 0, c: '#ffd84a', life: 0.3, big: true });
       ev(s, 'kill', { boss: e.kind === 'boss' });
+      if (e.kind === 'boss') { s.bossKills++; ev(s, 'bossKill', { variant: e.variant, wave: s.wave }); }
     }
   }
 
@@ -314,6 +337,14 @@
       if (u.flash > 0) u.flash -= dt;
     }
 
+    // double-income power-up (rewarded-ad feature)
+    if (s.dblT > 0) {
+      s.dblT -= dt;
+      if (s.dblT <= 0) { s.dblT = 0; s.dblCd = DBL_CD; }
+    } else if (s.dblCd > 0) {
+      s.dblCd = Math.max(0, s.dblCd - dt);
+    }
+
     // auto-merge power-up (rewarded-ad feature): merges pairs by itself while active
     if (s.autoT > 0) {
       s.autoT -= dt;
@@ -336,7 +367,13 @@
     }
 
     // enemies
+    const spawns = [];
     for (const e of s.enemies) {
+      if (e.regen && !e.dead) e.hp = Math.min(e.max, e.hp + e.max * e.regen * dt);
+      if (e.summon && !e.dead) {
+        e.sumT -= dt;
+        if (e.sumT <= 0) { e.sumT = e.summon; if (s.enemies.length < 45) spawns.push(e); }
+      }
       if (e.slowT > 0) { e.slowT -= dt; if (e.slowT <= 0) e.slowF = 0; }
       if (e.hit > 0) e.hit -= dt;
       e.d += e.spd * (1 - e.slowF) * dt;
@@ -349,6 +386,12 @@
         ev(s, 'leak');
         s.texts.push({ x: 322, y: e.y - 18, t: 0, s: '-' + e.dmg + ' ❤️', c: '#ff7b7b', size: 15, life: 0.9 });
       }
+    }
+    for (const b of spawns) {
+      const m = spawn(s, 'grunt');
+      m.hp = m.max = m.max * 0.6; m.reward *= 0.5;
+      m.d = Math.max(0, b.d - 14);
+      const q = posAt(m.d); m.x = q[0]; m.y = q[1];
     }
 
     // towers
@@ -366,7 +409,7 @@
       target.pend += st.dmg;
       s.proj.push({
         x: sp[0], y: sp[1], sx: sp[0], sy: sp[1], tx: target.x, ty: target.y, target,
-        dmg: st.dmg, type: u.type, speed: T.speed, splash: T.splash || 0, slow: T.slow || 0, slowT: T.slowT || 0,
+        dmg: st.dmg * s.dmgMul, type: u.type, speed: T.speed, splash: T.splash || 0, slow: T.slow || 0, slowT: T.slowT || 0,
         total: Math.hypot(target.x - sp[0], target.y - sp[1]), trav: 0
       });
       u.flash = 0.14;
@@ -419,6 +462,26 @@
   function activateAuto(s) {
     if (s.over || s.autoT > 0 || s.autoCd > 0) return false;
     s.autoT = AUTO_TIME; s.autoTick = 0.2;
+    ev(s, 'auto');
+    return true;
+  }
+  function activateDouble(s) {
+    if (s.over || s.dblT > 0 || s.dblCd > 0) return false;
+    s.dblT = DBL_TIME; ev(s, 'auto');
+    return true;
+  }
+  function dblInfo(s) {
+    if (s.dblT > 0) return { state: 'active', left: s.dblT, frac: s.dblT / DBL_TIME };
+    if (s.dblCd > 0) return { state: 'cooldown', left: s.dblCd, frac: s.dblCd / DBL_CD };
+    return { state: 'ready', left: 0, frac: 1 };
+  }
+  // Rewarded "continue": +3 lives, clears the path
+  function revive(s) {
+    if (!s.over || s.revived) return false;
+    s.revived = true; s.over = false; s.lives = 3;
+    s.enemies = []; s.proj = []; s.queue = [];
+    s.waveTimer = Math.max(s.waveTimer, 14);
+    s.announce = { text: '💖 Nastavljaš!', sub: '+3 života, put je očišćen', t: 0, life: 2.2, color: '#ff8fb1' };
     ev(s, 'auto');
     return true;
   }
@@ -573,7 +636,7 @@
     W, H, COLS, ROWS, NSLOTS, CELL, PITCH, GRID_X, GRID_Y, PANEL_Y, PANEL_H, SHOP_Y, SHOP_BH, MAXTIER, LEN, PATH,
     TYPES, TYPE_KEYS, ENEMIES, MODES, MODE_KEYS,
     posAt, slotPos, slotAt, shopRect, stats, create, cost, income, passiveIncome, minerIncome, earlyBonus,
-    isBossWave, bossNext, previewCounts, buy, canMerge, move, sell, callWave, update, advise, fmt, bot, botSmart, activateAuto, autoInfo, AUTO_TIME, AUTO_CD
+    isBossWave, bossNext, previewCounts, buy, canMerge, move, sell, callWave, update, advise, fmt, bot, botSmart, activateAuto, autoInfo, activateDouble, dblInfo, revive, BOSSES, bossVariant, AUTO_TIME, AUTO_CD, DBL_TIME, DBL_CD
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = Core;
   else root.Core = Core;

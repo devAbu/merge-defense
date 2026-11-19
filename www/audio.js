@@ -141,6 +141,16 @@
       tone({ type: 'sawtooth', f0: 300, f1: 1200, dur: 0.35, gain: 0.08, lp: 3000, t: t });
       tone({ type: 'triangle', f0: midi(84), dur: 0.25, gain: 0.1, t: t + 0.3 });
     },
+    ach: function () {
+      const t = ctx.currentTime;
+      [76, 83, 88].forEach(function (n, i) { tone({ type: 'triangle', f0: midi(n), dur: 0.2, gain: 0.08, t: t + i * 0.08 }); });
+      noise({ t: t, dur: 0.3, gain: 0.03, filter: 'highpass', freq: 6000 });
+    },
+    chest: function () {
+      const t = ctx.currentTime;
+      [60, 64, 67, 72, 76].forEach(function (n, i) { tone({ type: 'triangle', f0: midi(n), dur: 0.3, gain: 0.11, t: t + i * 0.08 }); });
+      noise({ t: t + 0.3, dur: 0.4, gain: 0.05, filter: 'highpass', freq: 5000 });
+    },
     over: function () {
       const t = ctx.currentTime;
       [69, 65, 62, 57].forEach(function (n, i) { tone({ type: 'triangle', f0: midi(n), dur: 0.45, gain: 0.12, t: t + i * 0.28, lp: 1500 }); });

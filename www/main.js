@@ -30,6 +30,9 @@
   // ---------- storage ----------
   function load(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch (e) { return d; } }
   function save(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* ignore */ } }
+  const META = window.Meta.create(localStorage);
+  const nowD = new Date();
+  const WINTER = (nowD.getMonth() === 11 || (nowD.getMonth() === 0 && nowD.getDate() <= 6)) || Q.get('season') === 'winter';
   const best = {};
   C.MODE_KEYS.forEach(k => { best[k] = parseInt(load('md2_best_' + k, '0'), 10) || 0; });
 
@@ -37,6 +40,7 @@
   let scene = load('md2_seen', '0') === '1' ? 'menu' : 'guide';
   let guideFrom = 'menu';
   let modeKey = 'normal';
+  let run = null, chest = null, dailyShown = !!Q.get('nodaily'), dailyRes = null;
   let s = C.create(modeKey);
   let sel = -1;
   let drag = null;
@@ -46,14 +50,21 @@
   let newBest = false;
   let overAt = 0;
   let clock = 0;
-  const VERSION = 'v3 eksperiment';
+  const VERSION = 'v3.1 eksperiment';
   const SND = window.Snd || { unlock() {}, play() {}, setMode() {}, duck() {}, suspend() {}, resume() {}, toggleSfx() { return false; }, toggleMusic() { return false; }, sfxOn: false, musicOn: false };
 
   function say(msg) { toast = { t: 1.8, msg }; }
 
+  function finishRun() {
+    if (!run || !s || s.wave < 2) return;
+    run.wave = s.wave; run.bosses = s.bossKills;
+    META.finishRun(run);
+  }
   function startGame(k) {
+    finishRun();
     modeKey = k;
-    s = C.create(k);
+    s = C.create(k, META.coreMeta(WINTER ? 1.1 : 1));
+    run = { mode: k, wave: 0, bosses: 0, paid: 0 };
     sel = -1; drag = null; newBest = false;
     scene = 'play';
   }
@@ -69,6 +80,7 @@
     if (Q.get('boss')) { s.wave = 9; s.waveTimer = 14; s.nextQ = ['boss', 'grunt', 'grunt']; }
   }
   if (Q.get('scene')) scene = Q.get('scene');
+  if (scene === 'chest' && !chest) chest = { kind: 'coins', amt: 85 };
   if (scene === 'over' && !s.over) { s.over = true; s.wave = 17; s.kills = 211; newBest = true; }
 
   // ---------- helpers ----------
@@ -163,6 +175,11 @@
 
   function act(id) {
     if (id.startsWith('mode:')) { startGame(id.slice(5)); return; }
+    if (id.startsWith('up:')) {
+      const k = id.slice(3);
+      if (META.buyUp(k)) { SND.play('merge', { tier: 3 }); say('✅ ' + META.UPS[k].name + ' nadogradnja!'); } else SND.play('error');
+      return;
+    }
     if (id.startsWith('buy:')) {
       const r = C.buy(s, id.slice(4));
       if (r === -2) say('Nema slobodnog mjesta! Spoji ili prodaj.');
@@ -172,10 +189,36 @@
       return;
     }
     switch (id) {
+      case 'tasks': case 'trophies': case 'ups': scene = id; break;
+      case 'back': scene = 'menu'; break;
+      case 'later': dailyShown = true; scene = 'menu'; break;
+      case 'dailyClaim': case 'dailyDouble': {
+        const r = META.dailyClaim(id === 'dailyDouble');
+        if (r) { dailyRes = r; SND.play('chest'); say('🎁 +' + r.coins + ' 🪙 za sljedeću igru' + (r.stars ? ' · ⭐ +' + r.stars : '')); }
+        dailyShown = true; scene = 'menu';
+        break;
+      }
+      case 'chestTake': case 'chestDouble': {
+        const k = id === 'chestDouble' ? 2 : 1;
+        if (k === 2) META.onVideo();
+        if (chest.kind === 'coins') s.coins += chest.amt * k; else META.addStars(chest.amt * k);
+        META.onChest(); SND.play('chest');
+        chest = null; scene = 'play';
+        break;
+      }
+      case 'revive': {
+        if (C.revive(s)) { META.onVideo(); scene = 'play'; }
+        break;
+      }
+      case 'dbl': {
+        if (C.activateDouble(s)) { META.onVideo(); say('💰 Dupla zarada 60s'); }
+        else SND.play('error');
+        break;
+      }
       case 'tmusic': SND.toggleMusic(); break;
       case 'tsfx': SND.toggleSfx(); break;
       case 'auto': {
-        if (C.activateAuto(s)) say('⚡ Auto-spajanje uključeno 60s');
+        if (C.activateAuto(s)) { META.onVideo(); say('⚡ Auto-spajanje uključeno 60s'); }
         else SND.play('error');
         break;
       }
@@ -186,13 +229,15 @@
       }
       case 'pause': scene = 'pause'; break;
       case 'resume': scene = 'play'; break;
-      case 'menu': scene = 'menu'; break;
+      case 'menu': finishRun(); scene = 'menu'; break;
       case 'guide': guideFrom = scene; scene = 'guide'; break;
       case 'closeGuide': save('md2_seen', '1'); scene = guideFrom === 'pause' ? 'pause' : 'menu'; guideFrom = 'menu'; break;
       case 'restart': startGame(modeKey); break;
       case 'again': startGame(modeKey); break;
       case 'call': {
+        const w0 = s.wave;
         const b = C.callWave(s);
+        if (s.wave > w0) META.onCall();
         if (b > 0) say('Pozvan talas ranije: bonus +' + b + ' 🪙');
         break;
       }
@@ -240,8 +285,8 @@
       const to = C.slotAt(x, y);
       if (to >= 0) {
         const r = C.move(s, from, to);
-        if (r === 'merge') { say('Spojeno! ⬆️'); sel = to; if (navigator.vibrate) { try { navigator.vibrate(15); } catch (err) { /* ignore */ } } }
-        else if (r) sel = to;
+        if (r === 'merge') { say('Spojeno! ⬆️'); sel = -1; if (navigator.vibrate) { try { navigator.vibrate(15); } catch (err) { /* ignore */ } } }
+        else if (r) sel = -1;
       }
     }
     drag = null;
@@ -251,11 +296,22 @@
   canvas.addEventListener('contextmenu', function (e) { e.preventDefault(); });
   document.addEventListener('visibilitychange', function () {
     hidden = document.hidden;
+    if (hidden) { finishRun(); META.save(); }
     if (hidden) SND.suspend(); else SND.resume();
     if (hidden && scene === 'play') scene = 'pause';
   });
 
   // ---------- drawing: pieces ----------
+  const FLAKES = [];
+  for (let i = 0; i < 46; i++) FLAKES.push({ x: Math.random() * 360, y: Math.random() * 740, v: 14 + Math.random() * 26, r: 0.8 + Math.random() * 1.8, ph: Math.random() * 6 });
+  function drawSnow() {
+    if (!WINTER) return;
+    ctx.fillStyle = 'rgba(255,255,255,0.65)';
+    for (const f of FLAKES) {
+      const y = (f.y + clock * f.v) % 740, x = f.x + Math.sin(clock * 0.8 + f.ph) * 8;
+      ctx.beginPath(); ctx.arc(x, y, f.r, 0, 6.3); ctx.fill();
+    }
+  }
   function drawBackground() {
     ctx.fillStyle = vgrad(0, C.H, '#0c1226', '#161f3f');
     ctx.fillRect(0, 0, C.W, C.H);
@@ -264,6 +320,7 @@
     g.addColorStop(1, 'rgba(91,140,255,0)');
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, C.W, C.H);
+    drawSnow();
   }
 
   function pill(x, y, w, h, c1, c2) {
@@ -276,7 +333,12 @@
   }
 
   function drawHUD() {
-    pill(10, 10, 112, 38, 'rgba(255,200,60,0.20)', 'rgba(255,200,60,0.07)');
+    const di = C.dblInfo(s);
+    pill(10, 10, 112, 38, di.state === 'active' ? 'rgba(255,200,60,0.45)' : 'rgba(255,200,60,0.20)', 'rgba(255,200,60,0.07)');
+    if (di.state === 'active') {
+      rr(10, 10, 112, 38, 19); ctx.strokeStyle = 'rgba(255,224,110,' + (0.6 + 0.4 * Math.sin(clock * 6)) + ')'; ctx.lineWidth = 2; ctx.stroke();
+      text('2×', 108, 20, 12, '#ffe08a', 'right', '900');
+    }
     emoji('🪙', 28, 29, 19);
     text(fmt(Math.floor(s.coins)), 42, 24, 17, '#ffe08a', 'left', '800');
     text('+' + C.income(s).toFixed(1) + '/s', 42, 40, 10, '#d9c27a', 'left', '600');
@@ -290,6 +352,25 @@
     text(String(s.lives), 262, 29, 17, '#ffb3b3', 'left', '800');
 
     button('pause', 294, 10, 56, 38, { label: '⏸', size: 18, r: 19 });
+  }
+
+  function drawDbl() {
+    const di = C.dblInfo(s);
+    {
+      const bx = 10, by = 54, bw = 112, bh = 24;
+      const mm = v => Math.floor(Math.ceil(v) / 60) + ':' + String(Math.ceil(v) % 60).padStart(2, '0');
+      if (di.state === 'ready') {
+        button('dbl', bx, by, bw, bh, { r: 12, c1: '#f5b73a', c2: '#c4731a', stroke: 'rgba(255,235,170,0.7)' });
+        text('🎬 2× 🪙 · video', bx + bw / 2, by + 13, 10.5, '#2a1500', 'center', '800');
+      } else if (di.state === 'active') {
+        button('dbl_', bx, by, bw, bh, { r: 12, c1: '#1f7a4a', c2: '#14563a', stroke: 'rgba(120,255,180,0.6)' });
+        rr(bx + 8, by + bh - 6, (bw - 16) * di.frac, 3, 1.5); ctx.fillStyle = '#7dffb4'; ctx.fill();
+        text('💰 2× ' + mm(di.left), bx + bw / 2, by + 10, 11, '#eafff3', 'center', '800');
+      } else {
+        button('dbl_', bx, by, bw, bh, { r: 12, c1: '#3a4060', c2: '#2a2f48', dim: true });
+        text('⏳ ' + mm(di.left) + ' pauza', bx + bw / 2, by + 13, 10.5, '#aab2d0', 'center', '800');
+      }
+    }
   }
 
   function drawField() {
@@ -335,7 +416,7 @@
     const size = e.kind === 'boss' ? 36 : e.kind === 'tank' ? 28 : 24;
     ctx.fillStyle = 'rgba(0,0,0,0.30)';
     ctx.beginPath(); ctx.ellipse(e.x, e.y + size * 0.42, size * 0.38, 4, 0, 0, Math.PI * 2); ctx.fill();
-    emoji(C.ENEMIES[e.kind].emoji, e.x, e.y, size);
+    emoji(e.emoji || C.ENEMIES[e.kind].emoji, e.x, e.y, size);
     if (e.hit > 0) {
       ctx.fillStyle = 'rgba(255,255,255,' + (0.55 * e.hit / 0.09) + ')';
       ctx.beginPath(); ctx.arc(e.x, e.y, size * 0.42, 0, Math.PI * 2); ctx.fill();
@@ -344,6 +425,7 @@
       ctx.strokeStyle = 'rgba(127,216,255,0.9)'; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.arc(e.x, e.y, size * 0.55, 0, Math.PI * 2); ctx.stroke();
     }
+    if (e.bname) text(e.bname, e.x, e.y - size / 2 - 17, 9, '#ffb3a0', 'center', '800');
     const bw = e.kind === 'boss' ? 42 : 26, bh = e.kind === 'boss' ? 6 : 4;
     const bx = e.x - bw / 2, by = e.y - size / 2 - 8;
     rr(bx, by, bw, bh, bh / 2); ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fill();
@@ -387,7 +469,7 @@
     px += 40;
     for (const k of ['grunt', 'runner', 'tank', 'boss']) {
       if (!pc[k]) continue;
-      emoji(C.ENEMIES[k].emoji, px + 6, y + 26, 12);
+      emoji(k === 'boss' ? C.BOSSES[C.bossVariant(C.isBossWave(s.wave + 1) ? s.wave + 1 : s.wave)].emoji : C.ENEMIES[k].emoji, px + 6, y + 26, 12);
       text('×' + pc[k], px + 15, y + 26, 10, '#dfe7ff', 'left', '700');
       px += k === 'boss' ? 30 : 36;
     }
@@ -706,6 +788,7 @@
     drawBackground();
     drawHUD();
     drawField();
+    drawDbl();
     drawStatus();
     const adv = C.advise(s);
     drawGrid(adv);
@@ -714,6 +797,7 @@
     drawPanel(adv);
     drawShop(adv);
     if (drag && drag.moved && s.slots[drag.from]) drawUnit(s.slots[drag.from], drag.x, drag.y - 22, 64, 0.92, { noFlash: true });
+    drawSnow();
     drawAnnounce();
     drawToast();
     if (s.hurt > 0) {
@@ -746,9 +830,16 @@
     if (!SND.sfxOn) { ctx.strokeStyle = '#ff7b7b'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x + w + 14, y + 26); ctx.lineTo(x + 2 * w + 2, y + 8); ctx.stroke(); }
   }
 
+  function starPill(x, y) {
+    pill(x, y, 100, 34, 'rgba(255,216,74,0.22)', 'rgba(255,216,74,0.07)');
+    emoji('⭐', x + 18, y + 18, 16);
+    text(String(META.stars), x + 34, y + 18, 15, '#ffe08a', 'left', '800');
+  }
+
   function drawMenu() {
     drawBackground();
     drawToggles(10, 12);
+    starPill(250, 12);
     titleText(92);
     text('Spajaj vojnike. Brani put. Pobijedi bosa.', C.W / 2, 176, 12.5, '#9fb0d8', 'center', '600');
     text('Izaberi težinu', C.W / 2, 214, 13, '#dfe7ff', 'center', '800');
@@ -767,8 +858,140 @@
       text('REKORD', 318, y + 30, 9, '#8493bd', 'right', '700');
       text(best[k] ? 'Talas ' + best[k] : '—', 318, y + 50, 15, col, 'right', '800');
     });
-    button('guide', 70, 560, 220, 44, { label: '📖  Vodič kroz jedinice', size: 14, r: 22 });
-    text('Radi bez interneta · ' + VERSION, C.W / 2, 640, 10.5, '#5d6a92', 'center', '600');
+    const nT = META.tasksDone();
+    const row = [['tasks', '📅 Zadaci', nT + '/3'], ['trophies', '🏆 Trofeji', META.achCount() + '/' + META.ACH.length], ['ups', '⭐ Nadogradnje', '']];
+    row.forEach((r, i) => {
+      const x = 20 + i * 110;
+      button(r[0], x, 548, 100, 46, { r: 14 });
+      text(r[1], x + 50, 548 + (r[2] ? 17 : 24), 11.5, '#fff', 'center', '800');
+      if (r[2]) text(r[2], x + 50, 548 + 33, 10.5, '#ffe08a', 'center', '700');
+    });
+    button('guide', 70, 604, 220, 38, { label: '📖  Vodič kroz jedinice', size: 13, r: 19 });
+    const pb = META.pendingBonus();
+    if (pb > 0) text('🎁 Bonus u sljedećoj igri: +' + pb + ' 🪙', C.W / 2, 664, 12, '#ffe08a', 'center', '800');
+    if (WINTER) text('❄️ Zimski događaj: +10% 🪙', C.W / 2, 684, 11, '#bfe6ff', 'center', '700');
+    text('Radi bez interneta · ' + VERSION, C.W / 2, 716, 10.5, '#5d6a92', 'center', '600');
+  }
+
+  function drawDaily() {
+    drawMenu();
+    dim(0.78);
+    card(20, 130, 320, 440, 22, 'rgba(18,24,48,0.97)', 'rgba(255,255,255,0.16)');
+    text('🎁 Dnevna nagrada', C.W / 2, 166, 20, '#fff', 'center', '900');
+    const st = META.dailyPreview();
+    text('Niz: ' + st + (st === 1 ? ' dan' : ' dana') + ' 🔥', C.W / 2, 194, 13, '#ffb26a', 'center', '800');
+    text('Dolazi svaki dan. Ako preskočiš, niz se samo smanji.', C.W / 2, 212, 10, '#8493bd', 'center', '600');
+    const cur = (st - 1) % 7;
+    for (let i = 0; i < 7; i++) {
+      const bx = 30 + i * 43, by = 236, w = 39, h = 74;
+      const done = i < cur, now = i === cur;
+      rr(bx, by, w, h, 10);
+      ctx.fillStyle = now ? 'rgba(255,216,74,0.25)' : done ? 'rgba(80,220,140,0.18)' : 'rgba(255,255,255,0.06)'; ctx.fill();
+      ctx.lineWidth = now ? 2 : 1; ctx.strokeStyle = now ? '#ffd84a' : 'rgba(255,255,255,0.15)'; ctx.stroke();
+      text('D' + (i + 1), bx + w / 2, by + 12, 10, '#9fb0d8', 'center', '700');
+      emoji(i === 6 ? '🎁' : '🪙', bx + w / 2, by + 34, 18);
+      text('+' + META.DAILY[i], bx + w / 2, by + 56, 11, done ? '#7fe3b0' : '#ffe08a', 'center', '800');
+      if (done) text('✓', bx + w - 8, by + 10, 11, '#7fe3b0', 'center', '900');
+    }
+    text('Dan 7 donosi i ⭐ ' + META.DAILY_STARS_DAY7 + ' zvjezdica', C.W / 2, 330, 11, '#ffe08a', 'center', '700');
+    const coins = META.DAILY[cur];
+    text('Nagrada ide u sljedeću igru kao startni novčići.', C.W / 2, 362, 10.5, '#b6c3e6', 'center', '600');
+    button('dailyClaim', 50, 390, 260, 48, { label: 'Preuzmi  +' + coins + ' 🪙', size: 15, r: 24, c1: '#ffcf4a', c2: '#e69a1a', color: '#2a1c00' });
+    button('dailyDouble', 50, 448, 260, 48, { label: '🎬 Duplo  +' + coins * 2 + ' 🪙  (video)', size: 14, r: 24, c1: '#8b5cf6', c2: '#5b34c9' });
+    button('later', 110, 510, 140, 36, { label: 'Kasnije', size: 12, r: 18 });
+  }
+
+  function screenHead(title, withStars) {
+    drawBackground();
+    if (withStars) { text(title, 16, 34, 22, '#fff', 'left', '900'); starPill(250, 14); }
+    else text(title, C.W / 2, 34, 24, '#fff', 'center', '900');
+  }
+
+  function drawTasks() {
+    screenHead('📅 Dnevni zadaci', true);
+    text('Niz: ' + META.data.streak + ' 🔥  ·  Rekord niza: ' + META.data.bestStreak, C.W / 2, 66, 12, '#ffb26a', 'center', '700');
+    META.tasksList().forEach((tk, i) => {
+      const def = META.taskDef(tk.id);
+      const y = 96 + i * 100;
+      card(16, y, 328, 88, 16, tk.done ? 'rgba(60,200,130,0.16)' : undefined, tk.done ? 'rgba(120,255,180,0.5)' : undefined);
+      emoji(def.emoji, 48, y + 30, 26);
+      text(def.text(tk.goal), 76, y + 24, 13, '#fff', 'left', '800');
+      text(tk.done ? '✅ Gotovo' : tk.prog + ' / ' + tk.goal, 76, y + 44, 11, tk.done ? '#7fe3b0' : '#9fb0d8', 'left', '700');
+      rr(76, y + 60, 196, 8, 4); ctx.fillStyle = 'rgba(255,255,255,0.1)'; ctx.fill();
+      rr(76, y + 60, Math.max(4, 196 * Math.min(1, tk.prog / tk.goal)), 8, 4); ctx.fillStyle = tk.done ? '#7dffb4' : '#6aa0ff'; ctx.fill();
+      text('+' + def.stars + ' ⭐', 330, y + 28, 15, '#ffe08a', 'right', '900');
+    });
+    text('Zadaci se resetuju svaki dan. Nagrada ide odmah po završetku.', C.W / 2, 410, 10.5, '#8493bd', 'center', '600');
+    text('⭐ trošiš na stalne nadogradnje.', C.W / 2, 428, 10.5, '#8493bd', 'center', '600');
+    button('ups', 70, 470, 220, 44, { label: '⭐  Nadogradnje', size: 14, r: 22, c1: '#6aa0ff', c2: '#4a6fe0' });
+    button('back', 70, 676, 220, 46, { label: 'Nazad', size: 15, r: 23 });
+  }
+
+  function drawTrophies() {
+    screenHead('🏆 Trofeji', false);
+    text('Zbirka bossova', 16, 62, 12, '#9fb0d8', 'left', '800');
+    C.BOSSES.forEach((b, i) => {
+      const n = META.data.st.bossKills[b.key] || 0;
+      const x = 14 + i * 86;
+      card(x, 72, 80, 76, 14, n ? 'rgba(255,216,74,0.12)' : undefined, n ? 'rgba(255,216,74,0.5)' : undefined);
+      ctx.globalAlpha = n ? 1 : 0.35;
+      emoji(n ? b.emoji : '❓', x + 40, 98, 26);
+      ctx.globalAlpha = 1;
+      text(n ? b.name : '???', x + 40, 124, 11, '#fff', 'center', '800');
+      text(n ? '×' + n : 'nije pobijeđen', x + 40, 138, 9, n ? '#ffe08a' : '#6f7ba3', 'center', '700');
+    });
+    text('Postignuća  ' + META.achCount() + '/' + META.ACH.length, 16, 170, 12, '#9fb0d8', 'left', '800');
+    META.ACH.forEach((a, i) => {
+      const y = 184 + i * 32;
+      const done = META.hasAch(a.id);
+      rr(12, y, 336, 29, 10); ctx.fillStyle = done ? 'rgba(80,220,140,0.14)' : 'rgba(255,255,255,0.04)'; ctx.fill();
+      ctx.globalAlpha = done ? 1 : 0.5;
+      emoji(a.emoji, 30, y + 15, 16);
+      text(a.name, 48, y + 10, 11.5, '#fff', 'left', '800');
+      text(a.desc, 48, y + 22, 9.5, '#9fb0d8', 'left', '600');
+      ctx.globalAlpha = 1;
+      text(done ? '✓' : '+' + a.stars + ' ⭐', 338, y + 15, done ? 14 : 11, done ? '#7fe3b0' : '#ffe08a', 'right', '900');
+    });
+    button('back', 70, 684, 220, 40, { label: 'Nazad', size: 14, r: 20 });
+  }
+
+  function drawUps() {
+    screenHead('⭐ Nadogradnje', true);
+    text('Zvjezdice zarađuješ igrajući. Ostaju zauvijek.', C.W / 2, 66, 11, '#8493bd', 'center', '600');
+    META.UP_KEYS.forEach((k, i) => {
+      const u = META.UPS[k];
+      const lvl = META.upLevel(k), cost = META.upCost(k);
+      const y = 88 + i * 108;
+      card(14, y, 332, 98, 16);
+      emoji(u.emoji, 44, y + 32, 28);
+      text(u.name, 76, y + 22, 14, '#fff', 'left', '800');
+      text(lvl ? u.desc(lvl) : 'Nivo 0 · ' + u.per + ' po nivou', 76, y + 42, 11, '#9fb0d8', 'left', '600');
+      for (let p = 0; p < u.max; p++) {
+        rr(76 + p * 26, y + 62, 22, 10, 5);
+        ctx.fillStyle = p < lvl ? '#ffd84a' : 'rgba(255,255,255,0.12)'; ctx.fill();
+      }
+      if (cost) {
+        const ok = META.stars >= cost;
+        button('up:' + k, 242, y + 24, 94, 50, { r: 13, c1: ok ? '#6aa0ff' : '#2a3150', c2: ok ? '#4a6fe0' : '#1f2540', dim: !ok });
+        text('Nadogradi', 289, y + 40, 11.5, '#fff', 'center', '800');
+        text(cost + ' ⭐', 289, y + 58, 13, '#ffe08a', 'center', '900');
+      } else text('MAX', 289, y + 48, 15, '#7fe3b0', 'center', '900');
+    });
+    text('Za zvjezdice: što dalje stigneš, to više ih dobiješ (+3 po bosu).', C.W / 2, 536, 10.5, '#8493bd', 'center', '600');
+    button('back', 70, 676, 220, 46, { label: 'Nazad', size: 15, r: 23 });
+  }
+
+  function drawChest() {
+    drawGame();
+    dim(0.8);
+    card(40, 210, 280, 300, 24, 'rgba(18,24,48,0.97)', 'rgba(255,216,74,0.5)');
+    const bob = Math.sin(clock * 4) * 4;
+    emoji('🎁', C.W / 2, 268 + bob, 54);
+    text('Sanduk od bosa!', C.W / 2, 322, 19, '#ffe08a', 'center', '900');
+    const isC = chest.kind === 'coins';
+    text((isC ? '+' + chest.amt + ' 🪙' : '+' + chest.amt + ' ⭐'), C.W / 2, 358, 24, '#fff', 'center', '900');
+    button('chestTake', 66, 388, 228, 44, { label: 'Uzmi', size: 15, r: 22, c1: '#ffcf4a', c2: '#e69a1a', color: '#2a1c00' });
+    button('chestDouble', 66, 442, 228, 44, { label: '🎬 Duplo  +' + chest.amt * 2 + (isC ? ' 🪙' : ' ⭐') + '  (video)', size: 13, r: 22, c1: '#8b5cf6', c2: '#5b34c9' });
   }
 
   function drawGuide() {
@@ -823,16 +1046,23 @@
   function drawOver() {
     drawGame();
     dim(0.78);
-    card(36, 170, 288, 360, 24, 'rgba(18,24,48,0.96)', 'rgba(255,255,255,0.14)');
-    text('KRAJ IGRE', C.W / 2, 214, 28, '#ff7b7b', 'center', '900');
-    text(C.MODES[modeKey].emoji + ' ' + C.MODES[modeKey].name, C.W / 2, 244, 12, '#9fb0d8', 'center', '700');
-    text(String(s.wave), C.W / 2, 306, 56, '#fff', 'center', '900');
-    text('TALAS', C.W / 2, 346, 11, '#8493bd', 'center', '700');
-    if (newBest) text('🏆 Novi rekord!', C.W / 2, 376, 15, '#ffd84a', 'center', '800');
-    else text('Rekord: talas ' + best[modeKey], C.W / 2, 376, 13, '#ffe08a', 'center', '700');
-    text('Ubijeno neprijatelja: ' + s.kills, C.W / 2, 402, 12, '#b6c3e6', 'center', '600');
-    button('again', 60, 430, 240, 44, { label: '↻  Igraj ponovo', size: 15, r: 22, c1: '#6aa0ff', c2: '#4a6fe0' });
-    button('menu', 60, 482, 240, 36, { label: '☰  Meni', size: 13, r: 18 });
+    const canRev = !s.revived && s.wave >= 3;
+    card(36, 150, 288, canRev ? 440 : 390, 24, 'rgba(18,24,48,0.96)', 'rgba(255,255,255,0.14)');
+    text('KRAJ IGRE', C.W / 2, 194, 28, '#ff7b7b', 'center', '900');
+    text(C.MODES[modeKey].emoji + ' ' + C.MODES[modeKey].name, C.W / 2, 224, 12, '#9fb0d8', 'center', '700');
+    text(String(s.wave), C.W / 2, 282, 56, '#fff', 'center', '900');
+    text('TALAS', C.W / 2, 322, 11, '#8493bd', 'center', '700');
+    if (newBest) text('🏆 Novi rekord!', C.W / 2, 350, 15, '#ffd84a', 'center', '800');
+    else text('Rekord: talas ' + best[modeKey], C.W / 2, 350, 13, '#ffe08a', 'center', '700');
+    text('Ubijeno neprijatelja: ' + s.kills, C.W / 2, 374, 12, '#b6c3e6', 'center', '600');
+    text('⭐ Zarađeno: ' + (run ? run.paid : 0), C.W / 2, 398, 14, '#ffe08a', 'center', '800');
+    let y = 420;
+    if (canRev) {
+      button('revive', 60, y, 240, 48, { label: '🎬 Nastavi  (+3 ❤️)', size: 15, r: 24, c1: '#ff7aa8', c2: '#d0386f' });
+      y += 58;
+    }
+    button('again', 60, y, 240, 44, { label: '↻  Igraj ponovo', size: 15, r: 22, c1: '#6aa0ff', c2: '#4a6fe0' });
+    button('menu', 60, y + 52, 240, 36, { label: '☰  Meni', size: 13, r: 18 });
   }
 
   function draw() {
@@ -847,25 +1077,47 @@
     else if (scene === 'guide') drawGuide();
     else if (scene === 'pause') drawPause();
     else if (scene === 'over') drawOver();
+    else if (scene === 'daily') drawDaily();
+    else if (scene === 'tasks') drawTasks();
+    else if (scene === 'trophies') drawTrophies();
+    else if (scene === 'ups') drawUps();
+    else if (scene === 'chest') drawChest();
     else drawGame();
+    if (scene !== 'play' && scene !== 'pause' && scene !== 'over' && scene !== 'chest') drawToast();
     ctx.restore();
   }
 
   // ---------- loop ----------
   let last = performance.now();
+  let metaSave = 3;
   function frame(now) {
     let dt = (now - last) / 1000;
     last = now;
     if (dt > 0.1) dt = 0.1;
     clock += dt;
     if (toast.t > 0) toast.t -= dt;
+    else if (META.popups.length) { SND.play('ach'); say(META.popups.shift()); }
+    if (scene === 'menu' && !dailyShown && META.dailyAvailable()) scene = 'daily';
+    metaSave -= dt; if (metaSave <= 0) { META.save(); metaSave = 3; }
     if (scene === 'play' && !hidden) {
       C.update(s, dt);
-      for (const e of s.events) SND.play(e.k, e);
+      for (const e of s.events) {
+        SND.play(e.k, e);
+        if (e.k === 'kill') META.onKill(1);
+        else if (e.k === 'merge') META.onMerge(e.tier);
+        else if (e.k === 'buy') META.onBuy();
+        else if (e.k === 'wave') META.onWave(s.wave, modeKey);
+        else if (e.k === 'bossKill') {
+          META.onBoss(e.variant);
+          const co = Math.random() < 0.7;
+          chest = co ? { kind: 'coins', amt: Math.round(30 + e.wave * 5) } : { kind: 'stars', amt: 3 };
+          scene = 'chest'; drag = null;
+        }
+      }
       s.events.length = 0;
       if (sel >= 0 && !s.slots[sel]) sel = -1;
       if (s.wave > best[modeKey]) { best[modeKey] = s.wave; save('md2_best_' + modeKey, String(s.wave)); newBest = s.wave > 1; }
-      if (s.over) { scene = 'over'; overAt = now; drag = null; }
+      if (s.over) { scene = 'over'; overAt = now; drag = null; finishRun(); }
     }
     SND.setMode(scene === 'play' || scene === 'pause' ? (C.isBossWave(s.wave) && s.queue.length ? 'boss' : 'play') : scene === 'over' ? 'off' : 'menu');
     SND.duck(scene === 'pause');
