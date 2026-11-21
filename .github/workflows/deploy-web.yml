@@ -1,0 +1,40 @@
+name: Deploy Web
+
+# main  -> https://devabu.github.io/merge-defense/
+# other -> https://devabu.github.io/merge-defense/dev/<branch>/
+on:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: deploy-web
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pick destination
+        id: dest
+        run: |
+          if [ "${GITHUB_REF_NAME}" = "main" ]; then
+            echo "dir=" >> "$GITHUB_OUTPUT"
+          else
+            safe=$(echo "${GITHUB_REF_NAME}" | tr '/' '-')
+            echo "dir=dev/${safe}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish www/ to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./www
+          publish_branch: gh-pages
+          destination_dir: ${{ steps.dest.outputs.dir }}
+          keep_files: true
