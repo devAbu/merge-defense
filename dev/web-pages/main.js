@@ -192,6 +192,7 @@
       case 'tasks': case 'trophies': case 'ups': scene = id; break;
       case 'back': scene = 'menu'; break;
       case 'later': dailyShown = true; scene = 'menu'; break;
+      case 'dailyOpen': scene = 'daily'; break;
       case 'dailyClaim': case 'dailyDouble': {
         const r = META.dailyClaim(id === 'dailyDouble');
         if (r) { dailyRes = r; SND.play('chest'); say('🎁 +' + r.coins + ' 🪙 za sljedeću igru' + (r.stars ? ' · ⭐ +' + r.stars : '')); }
@@ -866,7 +867,10 @@
       text(r[1], x + 50, 548 + (r[2] ? 17 : 24), 11.5, '#fff', 'center', '800');
       if (r[2]) text(r[2], x + 50, 548 + 33, 10.5, '#ffe08a', 'center', '700');
     });
-    button('guide', 70, 604, 220, 38, { label: '📖  Vodič kroz jedinice', size: 13, r: 19 });
+    if (META.dailyAvailable()) {
+      button('guide', 20, 604, 130, 38, { label: '📖  Vodič', size: 13, r: 19 });
+      if (scene === 'menu') button('dailyOpen', 160, 604, 180, 38, { label: '🎁  Dnevna nagrada', size: 13, r: 19, c1: '#ffcf4a', c2: '#e69a1a', color: '#2a1c00' });
+    } else button('guide', 70, 604, 220, 38, { label: '📖  Vodič kroz jedinice', size: 13, r: 19 });
     const pb = META.pendingBonus();
     if (pb > 0) text('🎁 Bonus u sljedećoj igri: +' + pb + ' 🪙', C.W / 2, 664, 12, '#ffe08a', 'center', '800');
     if (WINTER) text('❄️ Zimski događaj: +10% 🪙', C.W / 2, 684, 11, '#bfe6ff', 'center', '700');
