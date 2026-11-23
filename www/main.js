@@ -69,7 +69,9 @@
   // Projectiles, floating texts and effects are not saved (they are only visual / in flight for a split second).
   const RUN_KEY = 'md2_run';
   const SKIP_KEYS = { mode: 1, proj: 1, texts: 1, rings: 1, sparks: 1, events: 1, announce: 1 };
-  let saveT = 2, discardArm = 0, savedInfo = null;
+  let saveT = 2, discardArm = 0, savedInfo = null, restartArm = 0;
+  let vibOn = load('md2_vib', '1') === '1';
+  function vibrate(ms) { if (vibOn && navigator.vibrate) { try { navigator.vibrate(ms); } catch (err) { /* ignore */ } } }
   function readSaved() {
     try {
       const o = JSON.parse(load(RUN_KEY, 'null'));
@@ -144,7 +146,9 @@
     g.addColorStop(0, c0); g.addColorStop(1, c1);
     return g;
   }
+  const MIN_FONT = 11; // smallest text size (logical px) so everything stays readable on phones
   function text(str, x, y, size, color, align, weight) {
+    if (size < MIN_FONT) size = MIN_FONT;
     ctx.font = (weight || '700') + ' ' + size + 'px ' + FONT;
     ctx.fillStyle = color || '#fff';
     ctx.textAlign = align || 'left';
@@ -215,6 +219,12 @@
     for (let i = buttons.length - 1; i >= 0; i--) {
       const b = buttons[i];
       if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return b.id;
+    }
+    // forgiving second pass: small buttons get a touch area of at least 40 x 40 (only if nothing was hit exactly)
+    for (let i = buttons.length - 1; i >= 0; i--) {
+      const b = buttons[i];
+      const px = Math.max(0, (40 - b.w) / 2), py = Math.max(0, (40 - b.h) / 2);
+      if (x >= b.x - px && x <= b.x + b.w + px && y >= b.y - py && y <= b.y + b.h + py) return b.id;
     }
     return null;
   }
@@ -293,7 +303,14 @@
       case 'menu': finishRun(); saveRun(); scene = 'menu'; break;
       case 'guide': guideFrom = scene; scene = 'guide'; break;
       case 'closeGuide': save('md2_seen', '1'); scene = guideFrom === 'pause' ? 'pause' : 'menu'; guideFrom = 'menu'; break;
-      case 'restart': startGame(modeKey); break;
+      case 'restart':
+        if (clock > restartArm) { restartArm = clock + 3; SND.play('error'); } // first tap only asks for confirmation
+        else { restartArm = 0; startGame(modeKey); }
+        break;
+      case 'tvib':
+        vibOn = !vibOn; save('md2_vib', vibOn ? '1' : '0');
+        if (vibOn) vibrate(30);
+        break;
       case 'again': startGame(modeKey); break;
       case 'call': {
         const w0 = s.wave;
@@ -346,7 +363,7 @@
       const to = C.slotAt(x, y);
       if (to >= 0) {
         const r = C.move(s, from, to);
-        if (r === 'merge') { say('Spojeno! ⬆️'); sel = -1; if (navigator.vibrate) { try { navigator.vibrate(15); } catch (err) { /* ignore */ } } }
+        if (r === 'merge') { say('Spojeno! ⬆️'); sel = -1; vibrate(15); }
         else if (r) sel = -1;
       }
     }
@@ -909,6 +926,9 @@
     button('tsfx', x + w + 8, y, w, 34, { r: 12, c1: SND.sfxOn ? 'rgba(110,160,255,0.35)' : 'rgba(255,255,255,0.06)', c2: SND.sfxOn ? 'rgba(110,160,255,0.2)' : 'rgba(255,255,255,0.03)' });
     text(SND.sfxOn ? '🔊' : '🔈', x + w + 8 + w / 2, y + 18, 17, '#fff', 'center', '700');
     if (!SND.sfxOn) { ctx.strokeStyle = '#ff7b7b'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x + w + 14, y + 26); ctx.lineTo(x + 2 * w + 2, y + 8); ctx.stroke(); }
+    const vx = x + 2 * (w + 8);
+    button('tvib', vx, y, w, 34, { r: 12, c1: vibOn ? 'rgba(110,160,255,0.35)' : 'rgba(255,255,255,0.06)', c2: vibOn ? 'rgba(110,160,255,0.2)' : 'rgba(255,255,255,0.03)' });
+    text(vibOn ? '📳' : '📴', vx + w / 2, y + 18, 17, '#fff', 'center', '700');
   }
 
   function starPill(x, y) {
@@ -941,8 +961,9 @@
       const hpTxt = m.hp < 1 ? 'slabiji neprijatelji' : m.hp > 1 ? 'jači neprijatelji' : 'normalni neprijatelji';
       text(m.coins + ' 🪙 · ' + m.lives + ' ❤️ · ' + hpTxt, 100, y + 52, 11.5, '#b6c3e6', 'left', '600');
       text(k === 'easy' ? 'Više novčića i života' : k === 'hard' ? 'Malo novčića, malo života' : 'Uravnotežena igra', 100, y + 70, 11, '#8493bd', 'left', '600');
-      text('REKORD', 318, y + 30, 9, '#8493bd', 'right', '700');
-      text(best[k] ? 'Talas ' + best[k] : '—', 318, y + 50, 15, col, 'right', '800');
+      // record sits in the top-right corner so it never collides with the long "enemies" line below
+      text('REKORD', 318, y + 16, 11, '#8493bd', 'right', '700');
+      text(best[k] ? 'Talas ' + best[k] : '—', 318, y + 34, 15, col, 'right', '800');
     });
     const nT = META.tasksDone();
     const row = [['tasks', '📅 Zadaci', nT + '/3'], ['trophies', '🏆 Trofeji', META.achCount() + '/' + META.ACH.length], ['ups', '⭐ Nadogradnje', '']];
@@ -1126,10 +1147,13 @@
     text(C.MODES[modeKey].emoji + ' ' + C.MODES[modeKey].name + ' · Talas ' + s.wave, C.W / 2, 246, 12, '#9fb0d8', 'center', '600');
     button('resume', 62, 270, 236, 46, { label: '▶  Nastavi', size: 15, r: 23, c1: '#6aa0ff', c2: '#4a6fe0' });
     button('guide', 62, 326, 236, 42, { label: '📖  Vodič', size: 14, r: 21 });
-    button('restart', 62, 378, 236, 42, { label: '↻  Počni ispočetka', size: 14, r: 21 });
+    const rsArmed = clock < restartArm;
+    button('restart', 62, 378, 236, 42, rsArmed
+      ? { label: '⚠️  Sigurno? Dodirni ponovo', size: 14, r: 21, c1: '#d0386f', c2: '#a02050' }
+      : { label: '↻  Počni ispočetka', size: 14, r: 21 });
     button('menu', 62, 430, 236, 42, { label: '☰  Glavni meni', size: 14, r: 21 });
     text('Zvuk', C.W / 2, 494, 11, '#8493bd', 'center', '700');
-    drawToggles(C.W / 2 - 44, 508, 40);
+    drawToggles(C.W / 2 - 68, 508, 40);
   }
 
   function drawOver() {
