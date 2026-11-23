@@ -8,7 +8,7 @@
   const CELL = 64, PITCH = 68;
   const GRID_X = 12, GRID_Y = 308;
   const PANEL_Y = 516, PANEL_H = 52;
-  const SHOP_Y = 576, SHOP_BH = 52, SHOP_GAP = 6;
+  const SHOP_Y = 572, SHOP_BH = 50, SHOP_GAP = 5;
   const MAXTIER = 8;
   const ATK_MULT = 2.4;     // damage multiplier per tier
   const ECO_MULT = 2.2;     // miner income multiplier per tier
@@ -53,7 +53,7 @@
   const PATH = MAPS.classic.geo.PATH, LEN = MAPS.classic.geo.LEN, posAt = MAPS.classic.geo.posAt; // classic, kept for old callers
 
   // ---------- content ----------
-  const TYPE_KEYS = ['archer', 'gunner', 'cannon', 'mage', 'sniper', 'miner'];
+  const TYPE_KEYS = ['archer', 'gunner', 'cannon', 'mage', 'sniper', 'flame', 'tesla', 'banner', 'miner'];
   const TYPES = {
     archer: {
       name: 'Strijelac', emoji: '🏹', cost: 10, dmg: 6, rate: 1, speed: 420, c1: '#4cc26a', c2: '#26803f',
@@ -74,6 +74,18 @@
     sniper: {
       name: 'Snajper', emoji: '🎯', cost: 70, dmg: 60, rate: 0.35, speed: 1400, target: 'strong', c1: '#ffd24a', c2: '#c48a12',
       desc: 'Ogromna šteta jednoj meti. Cilja najjačeg.', best: 'Tenkovi i bosovi'
+    },
+    flame: {
+      name: 'Plamenjak', emoji: '🔥', cost: 45, dmg: 5, rate: 1.5, speed: 520, burn: 0.7, burnT: 3, c1: '#ff5f6d', c2: '#b0172a',
+      desc: 'Pali metu: 70% štete/s u 3s, probija oklop.', best: 'Tenkovi i bosovi'
+    },
+    tesla: {
+      name: 'Munja', emoji: '⚡', cost: 60, dmg: 8, rate: 1, speed: 900, chain: 2, chainR: 90, chainF: 0.5, c1: '#22d3ee', c2: '#0e7490',
+      desc: 'Munja skače na još 2 bliska neprijatelja.', best: 'Grupe neprijatelja'
+    },
+    banner: {
+      name: 'Zastavnik', emoji: '🚩', cost: 55, aura: 0.12, auraStep: 0.03, c1: '#f472b6', c2: '#9d174d',
+      desc: 'Ne puca. Pojačava susjedne vojnike (+12% štete).', best: 'Uz više jakih vojnika'
     },
     miner: {
       name: 'Rudar', emoji: '⛏️', cost: 30, income: 0.35, c1: '#37c9c0', c2: '#1b857f',
@@ -124,9 +136,30 @@
   function stats(type, tier) {
     const T = TYPES[type];
     if (T.income) return { income: T.income * Math.pow(ECO_MULT, tier - 1) };
+    if (T.aura) return { aura: T.aura + (T.auraStep || 0) * (tier - 1), dmg: 0, rate: 0, dps: 0, slow: 0, splash: 0 };
     const dmg = T.dmg * Math.pow(ATK_MULT, tier - 1);
     return { dmg, rate: T.rate, dps: dmg * T.rate, slow: T.slow || 0, splash: T.splash || 0 };
   }
+
+  // Support units (banner) boost the damage of their 4 orthogonal neighbours on the board.
+  function neighbours(i) {
+    const c = i % COLS;
+    const nb = [];
+    if (c > 0) nb.push(i - 1);
+    if (c < COLS - 1) nb.push(i + 1);
+    if (i >= COLS) nb.push(i - COLS);
+    if (i + COLS < NSLOTS) nb.push(i + COLS);
+    return nb;
+  }
+  function auraAt(s, i) {
+    let a = 0;
+    for (const j of neighbours(i)) {
+      const u = s.slots[j];
+      if (u && TYPES[u.type].aura) a += stats(u.type, u.tier).aura;
+    }
+    return Math.min(a, 1);
+  }
+  function zeroCounts() { const o = {}; for (const k of TYPE_KEYS) o[k] = 0; return o; }
 
   function ev(s, k, x) {
     if (s.events.length < 200) s.events.push(x ? Object.assign({ k }, x) : { k });
@@ -140,8 +173,8 @@
       mode: m, mapKey, geo: MAPS[mapKey].geo, coins: m.coins + (meta.coins || 0), lives: m.lives + (meta.lives || 0),
       incMul: meta.inc || 1, dmgMul: meta.dmg || 1, revived: false, bossKills: 0, dblT: 0, dblCd: 0, wave: 0, waveTimer: 8,
       queue: [], nextQ: [], spawnCd: 0, enemies: [], slots: new Array(NSLOTS).fill(null),
-      bought: { archer: 0, gunner: 0, cannon: 0, mage: 0, sniper: 0, miner: 0 },
-      proj: [], texts: [], rings: [], sparks: [],
+      bought: zeroCounts(),
+      proj: [], texts: [], rings: [], sparks: [], arcs: [],
       announce: null, hurt: 0, over: false, time: 0, kills: 0, nextId: 1,
       events: [], autoT: 0, autoCd: 0, autoTick: 0
     };
@@ -266,7 +299,7 @@
     const en = {
       id: s.nextId++, kind, hp, max: hp, pend: 0, d: 0, x: s.geo.PATH[0][0], y: s.geo.PATH[0][1],
       spd: BASE_SPEED * e.spd, reward: e.rew * 1.3 * (1 + 0.12 * s.wave) * s.mode.reward, dmg: e.dmg,
-      slowT: 0, slowF: 0, hit: 0
+      slowT: 0, slowF: 0, hit: 0, burnT: 0, burnDps: 0
     };
     if (bv) {
       en.variant = bossVariant(s.wave); en.emoji = bv.emoji; en.bname = bv.name;
@@ -279,11 +312,13 @@
   // ---------- combat ----------
   function fmtReward(r) { return r >= 10 ? String(Math.round(r)) : String(Math.round(r * 10) / 10); }
 
-  function hit(s, e, dmg, showNum) {
+  function hit(s, e, dmg, showNum, dot) {
     if (e.dead) return;
-    if (e.armor) dmg *= e.armor;
+    if (!dot) { // burning ("dot") ignores armor and does not flash
+      if (e.armor) dmg *= e.armor;
+      e.hit = 0.09;
+    }
     e.hp -= dmg;
-    e.hit = 0.09;
     if (showNum && s.texts.length < 50) {
       s.texts.push({ x: e.x + (Math.random() * 8 - 4), y: e.y - 14, t: 0, s: dmg >= 10 ? String(Math.round(dmg)) : dmg.toFixed(1), c: '#ffffff', size: 10, life: 0.5, small: true });
     }
@@ -305,6 +340,25 @@
     e.slowT = Math.max(e.slowT, t);
   }
 
+  // Lightning: from the hit enemy jump to the nearest other enemies, each jump deals a fraction of the damage.
+  function chainHit(s, from, p) {
+    const used = [from];
+    let cur = from;
+    for (let n = 0; n < p.chain; n++) {
+      let best = null, bd = p.chainR;
+      for (const o of s.enemies) {
+        if (o.dead || used.indexOf(o) >= 0) continue;
+        const d = Math.hypot(o.x - cur.x, o.y - cur.y);
+        if (d <= bd) { bd = d; best = o; }
+      }
+      if (!best) break;
+      hit(s, best, p.dmg * p.chainF, false);
+      if (s.arcs.length < 40) s.arcs.push({ x1: cur.x, y1: cur.y, x2: best.x, y2: best.y, t: 0, life: 0.16 });
+      s.sparks.push({ x: best.x, y: best.y, t: 0, c: '#7ee7ff', life: 0.16 });
+      used.push(best); cur = best;
+    }
+  }
+
   function impact(s, p) {
     const e = p.target;
     if (e) e.pend = Math.max(0, e.pend - p.dmg);
@@ -317,7 +371,9 @@
     } else if (e && !e.dead) {
       hit(s, e, p.dmg, true);
       if (p.slow) applySlow(e, p.slow, p.slowT);
-      s.sparks.push({ x: e.x, y: e.y, t: 0, c: p.type === 'mage' ? '#c9a2ff' : '#ffffff', life: 0.16 });
+      if (p.burn && !e.dead) { e.burnT = Math.max(e.burnT || 0, p.burnT); e.burnDps = Math.max(e.burnDps || 0, p.burn); }
+      if (p.chain) chainHit(s, e, p);
+      s.sparks.push({ x: e.x, y: e.y, t: 0, c: p.type === 'mage' ? '#c9a2ff' : p.type === 'flame' ? '#ff9a4a' : p.type === 'tesla' ? '#7ee7ff' : '#ffffff', life: 0.16 });
     }
   }
 
@@ -391,6 +447,12 @@
         if (e.sumT <= 0) { e.sumT = e.summon; if (s.enemies.length < 45) spawns.push(e); }
       }
       if (e.slowT > 0) { e.slowT -= dt; if (e.slowT <= 0) e.slowF = 0; }
+      if (e.burnT > 0 && !e.dead) {
+        const bd = Math.min(dt, e.burnT);
+        e.burnT -= dt;
+        hit(s, e, e.burnDps * bd, false, true);
+        if (e.burnT <= 0) { e.burnT = 0; e.burnDps = 0; }
+      }
       if (e.hit > 0) e.hit -= dt;
       e.d += e.spd * (1 - e.slowF) * dt;
       const p = s.geo.posAt(e.d);
@@ -415,6 +477,7 @@
       const u = s.slots[i];
       if (!u || u.type === 'miner') continue;
       if (u.flash > 0) u.flash -= dt;
+      if (TYPES[u.type].aura) continue; // support units do not shoot
       u.cd -= dt;
       if (u.cd > 0) continue;
       const T = TYPES[u.type];
@@ -422,10 +485,12 @@
       if (!target) { u.cd = 0; continue; }
       const st = stats(u.type, u.tier);
       const sp = slotPos(i);
+      const dmgNow = st.dmg * s.dmgMul * (1 + auraAt(s, i));
       target.pend += st.dmg;
       s.proj.push({
         x: sp[0], y: sp[1], sx: sp[0], sy: sp[1], tx: target.x, ty: target.y, target,
-        dmg: st.dmg * s.dmgMul, type: u.type, speed: T.speed, splash: T.splash || 0, slow: T.slow || 0, slowT: T.slowT || 0,
+        dmg: dmgNow, type: u.type, speed: T.speed, splash: T.splash || 0, slow: T.slow || 0, slowT: T.slowT || 0,
+        burn: T.burn ? dmgNow * T.burn : 0, burnT: T.burnT || 0, chain: T.chain || 0, chainR: T.chainR || 0, chainF: T.chainF || 0,
         total: Math.hypot(target.x - sp[0], target.y - sp[1]), trav: 0
       });
       u.flash = 0.14;
@@ -456,9 +521,11 @@
     for (const a of s.texts) a.t += dt;
     for (const a of s.rings) a.t += dt;
     for (const a of s.sparks) a.t += dt;
+    for (const a of s.arcs) a.t += dt;
     s.texts = s.texts.filter(a => a.t < a.life);
     s.rings = s.rings.filter(a => a.t < a.life);
     s.sparks = s.sparks.filter(a => a.t < a.life);
+    s.arcs = s.arcs.filter(a => a.t < a.life);
     if (s.announce) { s.announce.t += dt; if (s.announce.t > s.announce.life) s.announce = null; }
     if (s.hurt > 0) s.hurt -= dt;
 
@@ -509,13 +576,11 @@
   }
 
   // ---------- advice: what to buy / what to sell ----------
-  const BONUS = { archer: 1, gunner: 1, cannon: 1.5, mage: 1.3, sniper: 1.1 };
-  const ATTACKERS = ['archer', 'gunner', 'cannon', 'mage', 'sniper'];
+  const BONUS = { archer: 1, gunner: 1, cannon: 1.5, mage: 1.3, sniper: 1.1, flame: 1.35, tesla: 1.4 };
+  const ATTACKERS = ['archer', 'gunner', 'cannon', 'mage', 'sniper', 'flame', 'tesla'];
 
   function boardInfo(s, skip) {
-    const counts = { archer: 0, gunner: 0, cannon: 0, mage: 0, sniper: 0, miner: 0 };
-    const t1 = { archer: 0, gunner: 0, cannon: 0, mage: 0, sniper: 0, miner: 0 };
-    const t2 = { archer: 0, gunner: 0, cannon: 0, mage: 0, sniper: 0, miner: 0 };
+    const counts = zeroCounts(), t1 = zeroCounts(), t2 = zeroCounts();
     let free = 0;
     for (let i = 0; i < NSLOTS; i++) {
       const u = s.slots[i];
@@ -543,6 +608,13 @@
         v = 0.5 * tf * (cnt === 0 ? 2.2 : cnt === 1 ? 1.4 : cnt < 4 ? 0.8 : 0.3);
         if (attackers < 2) v *= 0.2;
         why = 'Rudar proizvodi 🪙 — što ranije, to više zaradi.';
+      } else if (T.aura) {
+        let totalDps = 0;
+        for (const u of s.slots) if (u && ATTACKERS.indexOf(u.type) >= 0) totalDps += stats(u.type, u.tier).dps;
+        const avg = attackers ? totalDps / attackers : 0;
+        v = (stats(k, 1).aura * Math.min(3, attackers) * avg * 1.2) / c / (1 + 0.9 * b.counts[k]);
+        if (attackers < 3) v *= 0.15;
+        why = 'Zastavnik pojačava susjedne vojnike za +' + Math.round(stats(k, 1).aura * 100) + '% štete.';
       } else {
         v = (T.dmg * T.rate * BONUS[k]) / c / (1 + 0.4 * b.counts[k]);
         why = 'Najisplativije sada: ' + T.name + ' (DPS ' + fmt(T.dmg * T.rate) + ' za ' + c + ' 🪙).';
@@ -550,6 +622,8 @@
         else if (k === 'sniper' && nTank >= 2 && b.counts.sniper < 1) { v *= 1.6; why = 'Tenkovi su debeli — Snajper ih najbolje probija.'; }
         if (k === 'cannon' && nE >= 6 && b.counts.cannon < 2) { v *= 1.4; why = 'Puno neprijatelja na putu — Top pogađa više njih odjednom.'; }
         if (k === 'mage' && nRun >= 3 && b.counts.mage === 0) { v *= 1.8; why = 'Brzi neprijatelji — Čarobnjak ih usporava za 40%.'; }
+        if (k === 'flame' && (nTank >= 2 || bossNext(s)) && b.counts.flame < 2) { v *= 1.5; why = 'Debeli neprijatelji — Plamenjak pali metu i probija oklop.'; }
+        if (k === 'tesla' && nE >= 5 && b.counts.tesla < 2) { v *= 1.4; why = 'Gužva na putu — Munja skače na još 2 neprijatelja.'; }
       }
       // Merge chance: an unpaired level-1 unit of the same type exists, so buying one more merges at once
       const merges = b.t1[k] >= 1;
@@ -566,9 +640,17 @@
   }
 
   // How valuable a unit is to keep (higher = keep). Used to pick what to sell.
-  function unitWorth(s, u, counts) {
+  function unitWorth(s, u, counts, idx) {
     let w;
-    if (u.type === 'miner') {
+    if (TYPES[u.type].aura) {
+      // worth = extra damage it gives to its neighbours
+      w = 0;
+      const a = stats(u.type, u.tier).aura;
+      for (const j of neighbours(idx)) {
+        const o = s.slots[j];
+        if (o && ATTACKERS.indexOf(o.type) >= 0) w += stats(o.type, o.tier).dps * BONUS[o.type] * a;
+      }
+    } else if (u.type === 'miner') {
       w = stats('miner', u.tier).income * s.mode.income * 25 * (s.wave < 12 ? 1.5 : s.wave < 20 ? 1 : 0.6);
     } else {
       w = stats(u.type, u.tier).dps * BONUS[u.type];
@@ -591,14 +673,14 @@
       // Board full and nothing to merge: say exactly which unit to sell and what to buy after
       let wi = -1, ww = Infinity;
       for (let i = 0; i < NSLOTS; i++) {
-        const w = unitWorth(s, s.slots[i], b.counts);
+        const w = unitWorth(s, s.slots[i], b.counts, i);
         if (w < ww) { ww = w; wi = i; }
       }
       const u = s.slots[wi];
       const T = TYPES[u.type];
       const after = bestBuy(s, boardInfo(s, wi), 1);
       const half = Math.floor(u.val * 0.5);
-      const val = u.type === 'miner' ? '+' + (stats('miner', u.tier).income * s.mode.income).toFixed(2) + ' 🪙/s' : 'DPS ' + fmt(stats(u.type, u.tier).dps);
+      const val = u.type === 'miner' ? '+' + (stats('miner', u.tier).income * s.mode.income).toFixed(2) + ' 🪙/s' : T.aura ? '+' + Math.round(stats(u.type, u.tier).aura * 100) + '% štete susjedima' : 'DPS ' + fmt(stats(u.type, u.tier).dps);
       let text = 'Nema mjesta. Prodaj ' + T.name + ' (nivo ' + u.tier + ') — najmanje vrijedan (' + val + '), vraća +' + half + ' 🪙. Zatim kupi ' + TYPES[after.type].name + '.';
       return { kind: 'sell', slot: wi, type: after.type, text };
     }
@@ -623,15 +705,17 @@
     for (let i = 0; i < NSLOTS; i++)
       for (let j = i + 1; j < NSLOTS; j++)
         if (canMerge(s, i, j)) { move(s, i, j); return; }
-    const counts = { archer: 0, gunner: 0, cannon: 0, mage: 0, sniper: 0, miner: 0 };
+    const counts = zeroCounts();
     for (const u of s.slots) if (u) counts[u.type]++;
     let pick;
-    const atk = counts.archer + counts.gunner + counts.cannon + counts.mage + counts.sniper;
+    const atk = ATTACKERS.reduce((a, k) => a + counts[k], 0);
     if (atk >= 2 && counts.miner < 2 && s.wave < 8) pick = 'miner';
     else {
       pick = 'archer';
       const pool = ['archer', 'gunner', 'cannon', 'mage'];
       if (s.wave >= 5) pool.push('sniper');
+      if (s.wave >= 3) pool.push('flame');
+      if (s.wave >= 6) pool.push('tesla');
       for (const k of pool) if (counts[k] < counts[pick]) pick = k;
     }
     if (s.coins >= cost(s, pick)) buy(s, pick);
@@ -651,7 +735,7 @@
   const Core = {
     W, H, COLS, ROWS, NSLOTS, CELL, PITCH, GRID_X, GRID_Y, PANEL_Y, PANEL_H, SHOP_Y, SHOP_BH, MAXTIER, LEN, PATH, MAPS, MAP_KEYS,
     TYPES, TYPE_KEYS, ENEMIES, MODES, MODE_KEYS,
-    posAt, slotPos, slotAt, shopRect, stats, create, cost, income, passiveIncome, minerIncome, earlyBonus,
+    posAt, slotPos, slotAt, shopRect, stats, neighbours, auraAt, create, cost, income, passiveIncome, minerIncome, earlyBonus,
     isBossWave, bossNext, previewCounts, buy, canMerge, move, sell, callWave, update, advise, fmt, bot, botSmart, activateAuto, autoInfo, activateDouble, dblInfo, revive, BOSSES, bossVariant, AUTO_TIME, AUTO_CD, DBL_TIME, DBL_CD
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = Core;

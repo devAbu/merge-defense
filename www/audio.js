@@ -176,6 +176,12 @@
       } else if (type === 'sniper') {
         noise({ dur: 0.12, gain: 0.16, filter: 'bandpass', freq: 2200, q: 0.8 });
         tone({ type: 'sine', f0: 240, f1: 60, dur: 0.2, gain: 0.16 });
+      } else if (type === 'flame') {
+        noise({ dur: 0.1, gain: 0.06, filter: 'bandpass', freq: 900, q: 0.7 });
+        tone({ type: 'sawtooth', f0: 210, f1: 120, dur: 0.09, gain: 0.03, lp: 900 });
+      } else if (type === 'tesla') {
+        tone({ type: 'square', f0: 1500, f1: 380, dur: 0.07, gain: 0.04, lp: 3500 });
+        noise({ dur: 0.05, gain: 0.04, filter: 'highpass', freq: 5000 });
       }
     }
   };
