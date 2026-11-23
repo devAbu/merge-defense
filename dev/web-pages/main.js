@@ -60,8 +60,14 @@
     run.wave = s.wave; run.bosses = s.bossKills;
     META.finishRun(run);
   }
+  // Speed-up power-up: 60 s of real time per use, 3 free uses per run, then a (placeholder) rewarded video.
+  // The timer only drains while boosted (x2/x3), so switching back to x1 keeps the remaining time.
+  const SPEED_TIME = 60, SPEED_FREE = 3;
+  let spd = { mult: 1, left: 0, uses: 0 };
+
   function startGame(k) {
     finishRun();
+    spd = { mult: 1, left: 0, uses: 0 };
     modeKey = k;
     s = C.create(k, META.coreMeta(WINTER ? 1.1 : 1));
     run = { mode: k, wave: 0, bosses: 0, paid: 0 };
@@ -214,6 +220,16 @@
       case 'dbl': {
         if (C.activateDouble(s)) { META.onVideo(); say('💰 Dupla zarada 60s'); }
         else SND.play('error');
+        break;
+      }
+      case 'speed': {
+        if (spd.left > 0) {
+          spd.mult = spd.mult === 2 ? 3 : spd.mult === 3 ? 1 : 2; // x2 -> x3 -> x1 (paused) -> x2
+        } else {
+          if (spd.uses >= SPEED_FREE) META.onVideo(); // placeholder for the rewarded video
+          spd.uses++; spd.left = SPEED_TIME; spd.mult = 2;
+          say('⏩ Ubrzanje ' + SPEED_TIME + 's');
+        }
         break;
       }
       case 'tmusic': SND.toggleMusic(); break;
@@ -371,6 +387,25 @@
         button('dbl_', bx, by, bw, bh, { r: 12, c1: '#3a4060', c2: '#2a2f48', dim: true });
         text('⏳ ' + mm(di.left) + ' pauza', bx + bw / 2, by + 13, 10.5, '#aab2d0', 'center', '800');
       }
+    }
+  }
+
+  function drawSpeed() {
+    const bx = 240, by = 54, bw = 110, bh = 24;
+    const mm = v => Math.floor(Math.ceil(v) / 60) + ':' + String(Math.ceil(v) % 60).padStart(2, '0');
+    if (spd.left > 0) {
+      const on = spd.mult > 1;
+      button('speed', bx, by, bw, bh, on
+        ? { r: 12, c1: '#1f7a4a', c2: '#14563a', stroke: 'rgba(120,255,180,0.6)' }
+        : { r: 12, c1: '#3a4a7a', c2: '#27325a', stroke: 'rgba(160,190,255,0.5)' });
+      rr(bx + 8, by + bh - 6, (bw - 16) * (spd.left / SPEED_TIME), 3, 1.5); ctx.fillStyle = on ? '#7dffb4' : '#9fb4ff'; ctx.fill();
+      text((on ? '⏩ ×' + spd.mult : '⏸ ×1') + ' · ' + mm(spd.left), bx + bw / 2, by + 10, 11, '#eafff3', 'center', '800');
+    } else if (spd.uses < SPEED_FREE) {
+      button('speed', bx, by, bw, bh, { r: 12, c1: '#4f8cff', c2: '#2c54c4', stroke: 'rgba(190,210,255,0.7)' });
+      text('⏩ ×2 · ' + (SPEED_FREE - spd.uses) + '/' + SPEED_FREE + ' free', bx + bw / 2, by + 13, 10.5, '#fff', 'center', '800');
+    } else {
+      button('speed', bx, by, bw, bh, { r: 12, c1: '#8b5cf6', c2: '#5b34c9', stroke: 'rgba(200,170,255,0.6)' });
+      text('🎬 ⏩ ×2 · video', bx + bw / 2, by + 13, 10.5, '#fff', 'center', '800');
     }
   }
 
@@ -790,6 +825,7 @@
     drawHUD();
     drawField();
     drawDbl();
+    drawSpeed();
     drawStatus();
     const adv = C.advise(s);
     drawGrid(adv);
@@ -1104,7 +1140,11 @@
     if (scene === 'menu' && !dailyShown && META.dailyAvailable()) scene = 'daily';
     metaSave -= dt; if (metaSave <= 0) { META.save(); metaSave = 3; }
     if (scene === 'play' && !hidden) {
-      C.update(s, dt);
+      if (spd.mult > 1) {
+        spd.left -= dt;
+        if (spd.left <= 0) { spd.left = 0; spd.mult = 1; say('⏩ Ubrzanje završeno'); }
+      }
+      for (let i = 0, k = spd.mult; i < k && !s.over; i++) C.update(s, dt);
       for (const e of s.events) {
         SND.play(e.k, e);
         if (e.k === 'kill') META.onKill(1);
