@@ -17,25 +17,40 @@
   const AUTO_TIME = 60, AUTO_CD = 15, AUTO_TICK = 0.4;
   const DBL_TIME = 60, DBL_CD = 15;
 
-  const PATH = [[-20, 92], [310, 92], [310, 162], [50, 162], [50, 232], [336, 232]];
-  const SEG = [];
-  let LEN = 0;
-  for (let i = 0; i < PATH.length - 1; i++) {
-    const [x1, y1] = PATH[i], [x2, y2] = PATH[i + 1];
-    const l = Math.hypot(x2 - x1, y2 - y1);
-    SEG.push({ x1, y1, x2, y2, l, s: LEN });
-    LEN += l;
-  }
-  function posAt(d) {
-    for (const g of SEG) {
-      if (d <= g.s + g.l) {
-        const t = Math.max(0, (d - g.s) / g.l);
-        return [g.x1 + (g.x2 - g.x1) * t, g.y1 + (g.y2 - g.y1) * t];
-      }
+  // ---------- maps ----------
+  // Each map is a polyline the enemies walk along (field is x -20..340, y ~90..235). Lengths are kept similar
+  // (~1000-1060) so difficulty stays comparable; verify with `npm run sim`.
+  const MAPS = {
+    classic: { name: 'Klasik', emoji: '🛣️', path: [[-20, 92], [310, 92], [310, 162], [50, 162], [50, 232], [336, 232]] },
+    zigzag: { name: 'Cik-cak', emoji: '⚡', path: [[-20, 92], [40, 92], [40, 232], [100, 232], [100, 92], [160, 92], [160, 232], [220, 232], [220, 92], [280, 92], [280, 232], [336, 232]] },
+    spiral: { name: 'Spirala', emoji: '🌀', path: [[-20, 92], [320, 92], [320, 232], [40, 232], [40, 162], [250, 162]] }
+  };
+  const MAP_KEYS = ['classic', 'zigzag', 'spiral'];
+  function buildGeo(path) {
+    const seg = [];
+    let len = 0;
+    for (let i = 0; i < path.length - 1; i++) {
+      const [x1, y1] = path[i], [x2, y2] = path[i + 1];
+      const l = Math.hypot(x2 - x1, y2 - y1);
+      seg.push({ x1, y1, x2, y2, l, s: len });
+      len += l;
     }
-    const last = PATH[PATH.length - 1];
-    return [last[0], last[1]];
+    return {
+      PATH: path, SEG: seg, LEN: len,
+      posAt: function (d) {
+        for (const g of seg) {
+          if (d <= g.s + g.l) {
+            const t = Math.max(0, (d - g.s) / g.l);
+            return [g.x1 + (g.x2 - g.x1) * t, g.y1 + (g.y2 - g.y1) * t];
+          }
+        }
+        const last = path[path.length - 1];
+        return [last[0], last[1]];
+      }
+    };
   }
+  for (const k of MAP_KEYS) MAPS[k].geo = buildGeo(MAPS[k].path);
+  const PATH = MAPS.classic.geo.PATH, LEN = MAPS.classic.geo.LEN, posAt = MAPS.classic.geo.posAt; // classic, kept for old callers
 
   // ---------- content ----------
   const TYPE_KEYS = ['archer', 'gunner', 'cannon', 'mage', 'sniper', 'miner'];
@@ -117,11 +132,12 @@
     if (s.events.length < 200) s.events.push(x ? Object.assign({ k }, x) : { k });
   }
 
-  function create(modeKey, meta) {
+  function create(modeKey, meta, mapKey) {
     const m = MODES[modeKey] || MODES.normal;
     meta = meta || {};
+    if (!MAPS[mapKey]) mapKey = 'classic';
     const s = {
-      mode: m, coins: m.coins + (meta.coins || 0), lives: m.lives + (meta.lives || 0),
+      mode: m, mapKey, geo: MAPS[mapKey].geo, coins: m.coins + (meta.coins || 0), lives: m.lives + (meta.lives || 0),
       incMul: meta.inc || 1, dmgMul: meta.dmg || 1, revived: false, bossKills: 0, dblT: 0, dblCd: 0, wave: 0, waveTimer: 8,
       queue: [], nextQ: [], spawnCd: 0, enemies: [], slots: new Array(NSLOTS).fill(null),
       bought: { archer: 0, gunner: 0, cannon: 0, mage: 0, sniper: 0, miner: 0 },
@@ -248,7 +264,7 @@
     const hp = hpFor(s, kind) * (bv ? bv.hp / ENEMIES.boss.hp : 1);
     if (kind === 'boss') ev(s, 'bossSpawn');
     const en = {
-      id: s.nextId++, kind, hp, max: hp, pend: 0, d: 0, x: PATH[0][0], y: PATH[0][1],
+      id: s.nextId++, kind, hp, max: hp, pend: 0, d: 0, x: s.geo.PATH[0][0], y: s.geo.PATH[0][1],
       spd: BASE_SPEED * e.spd, reward: e.rew * 1.3 * (1 + 0.12 * s.wave) * s.mode.reward, dmg: e.dmg,
       slowT: 0, slowF: 0, hit: 0
     };
@@ -377,21 +393,21 @@
       if (e.slowT > 0) { e.slowT -= dt; if (e.slowT <= 0) e.slowF = 0; }
       if (e.hit > 0) e.hit -= dt;
       e.d += e.spd * (1 - e.slowF) * dt;
-      const p = posAt(e.d);
+      const p = s.geo.posAt(e.d);
       e.x = p[0]; e.y = p[1];
-      if (e.d >= LEN && !e.dead) {
+      if (e.d >= s.geo.LEN && !e.dead) {
         e.dead = true; e.leaked = true;
         s.lives -= e.dmg;
         s.hurt = 0.4;
         ev(s, 'leak');
-        s.texts.push({ x: 322, y: e.y - 18, t: 0, s: '-' + e.dmg + ' ❤️', c: '#ff7b7b', size: 15, life: 0.9 });
+        s.texts.push({ x: Math.min(322, s.geo.PATH[s.geo.PATH.length - 1][0]), y: e.y - 18, t: 0, s: '-' + e.dmg + ' ❤️', c: '#ff7b7b', size: 15, life: 0.9 });
       }
     }
     for (const b of spawns) {
       const m = spawn(s, 'grunt');
       m.hp = m.max = m.max * 0.6; m.reward *= 0.5;
       m.d = Math.max(0, b.d - 14);
-      const q = posAt(m.d); m.x = q[0]; m.y = q[1];
+      const q = s.geo.posAt(m.d); m.x = q[0]; m.y = q[1];
     }
 
     // towers
@@ -633,7 +649,7 @@
   }
 
   const Core = {
-    W, H, COLS, ROWS, NSLOTS, CELL, PITCH, GRID_X, GRID_Y, PANEL_Y, PANEL_H, SHOP_Y, SHOP_BH, MAXTIER, LEN, PATH,
+    W, H, COLS, ROWS, NSLOTS, CELL, PITCH, GRID_X, GRID_Y, PANEL_Y, PANEL_H, SHOP_Y, SHOP_BH, MAXTIER, LEN, PATH, MAPS, MAP_KEYS,
     TYPES, TYPE_KEYS, ENEMIES, MODES, MODE_KEYS,
     posAt, slotPos, slotAt, shopRect, stats, create, cost, income, passiveIncome, minerIncome, earlyBonus,
     isBossWave, bossNext, previewCounts, buy, canMerge, move, sell, callWave, update, advise, fmt, bot, botSmart, activateAuto, autoInfo, activateDouble, dblInfo, revive, BOSSES, bossVariant, AUTO_TIME, AUTO_CD, DBL_TIME, DBL_CD

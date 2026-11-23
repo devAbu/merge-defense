@@ -68,8 +68,11 @@
   // Resumable run: the state of an unfinished run is kept in localStorage and offered as "Nastavi" in the menu.
   // Projectiles, floating texts and effects are not saved (they are only visual / in flight for a split second).
   const RUN_KEY = 'md2_run';
-  const SKIP_KEYS = { mode: 1, proj: 1, texts: 1, rings: 1, sparks: 1, events: 1, announce: 1 };
+  const SKIP_KEYS = { mode: 1, geo: 1, proj: 1, texts: 1, rings: 1, sparks: 1, events: 1, announce: 1 };
   let saveT = 2, discardArm = 0, savedInfo = null, restartArm = 0;
+  let mapKey = load('md2_map', 'classic');
+  if (!C.MAPS[mapKey]) mapKey = 'classic';
+  function mapLabel(k) { const m = C.MAPS[k] || C.MAPS.classic; return m.emoji + ' ' + m.name; }
   let vibOn = load('md2_vib', '1') === '1';
   function vibrate(ms) { if (vibOn && navigator.vibrate) { try { navigator.vibrate(ms); } catch (err) { /* ignore */ } } }
   function readSaved() {
@@ -87,14 +90,14 @@
     const snap = {};
     for (const k in s) if (!SKIP_KEYS[k]) snap[k] = s[k];
     save(RUN_KEY, JSON.stringify({ v: 1, mode: modeKey, s: snap, run, spd: { uses: spd.uses, left: spd.left } }));
-    savedInfo = { mode: modeKey, wave: s.wave };
+    savedInfo = { mode: modeKey, map: s.mapKey, wave: s.wave };
   }
   function resumeRun() {
     const o = readSaved();
     if (!o) { clearSave(); return false; }
     finishRun();
     modeKey = o.mode;
-    s = C.create(o.mode, {});
+    s = C.create(o.mode, {}, o.s.mapKey);
     Object.assign(s, o.s);
     s.mode = C.MODES[o.mode];
     for (const e of s.enemies) e.pend = 0; // damage "in flight" was not saved
@@ -104,14 +107,14 @@
     scene = 'pause'; // give the player a moment before the enemies move
     return true;
   }
-  { const o = readSaved(); if (o) savedInfo = { mode: o.mode, wave: o.s.wave }; }
+  { const o = readSaved(); if (o) savedInfo = { mode: o.mode, map: o.s.mapKey, wave: o.s.wave }; }
 
   function startGame(k) {
     finishRun();
     clearSave(); discardArm = 0;
     spd = { mult: 1, left: 0, uses: 0 };
     modeKey = k;
-    s = C.create(k, META.coreMeta(WINTER ? 1.1 : 1));
+    s = C.create(k, META.coreMeta(WINTER ? 1.1 : 1), mapKey);
     run = { mode: k, wave: 0, bosses: 0, paid: 0 };
     sel = -1; drag = null; newBest = false;
     scene = 'play';
@@ -119,6 +122,7 @@
 
   // URL hooks for testing / screenshots
   if (Q.get('mode') && C.MODES[Q.get('mode')]) modeKey = Q.get('mode');
+  if (Q.get('map') && C.MAPS[Q.get('map')]) mapKey = Q.get('map');
   if (Q.get('demo')) {
     startGame(modeKey);
     const secs = parseInt(Q.get('demo'), 10) > 1 ? parseInt(Q.get('demo'), 10) : 150;
@@ -230,6 +234,7 @@
   }
 
   function act(id) {
+    if (id.startsWith('map:')) { mapKey = id.slice(4); save('md2_map', mapKey); return; }
     if (id.startsWith('mode:')) {
       if (savedInfo && clock > discardArm) { discardArm = clock + 3; say('⚠️ Nova igra briše spremljenu. Dodirni ponovo.'); return; }
       startGame(id.slice(5)); return;
@@ -491,7 +496,7 @@
     // path
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     ctx.beginPath();
-    C.PATH.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]));
+    s.geo.PATH.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]));
     ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 40; ctx.stroke();
     ctx.strokeStyle = '#2b3d5c'; ctx.lineWidth = 34; ctx.stroke();
     ctx.strokeStyle = '#34496d'; ctx.lineWidth = 28; ctx.stroke();
@@ -500,8 +505,9 @@
     ctx.setLineDash([]);
 
     // spawn arrows + castle
-    text('»', 16, 92, 20, 'rgba(255,255,255,0.45)', 'center', '800');
-    emoji('🏰', 344, 232, 28);
+    const gp = s.geo.PATH, gEnd = gp[gp.length - 1];
+    text('»', 16, gp[0][1], 20, 'rgba(255,255,255,0.45)', 'center', '800');
+    emoji('🏰', gEnd[0] + 8, gEnd[1], 28);
 
     // enemies
     const list = s.enemies.slice().sort((a, b) => a.y - b.y);
@@ -945,18 +951,27 @@
     if (savedInfo) {
       if (scene === 'menu') {
         const sm = C.MODES[savedInfo.mode];
-        button('continue', 20, 160, 320, 38, { label: '▶  Nastavi · ' + sm.emoji + ' ' + sm.name + ' · Talas ' + savedInfo.wave, size: 13.5, r: 19, c1: '#6aa0ff', c2: '#4a6fe0', color: '#fff' });
+        button('continue', 20, 160, 320, 38, { label: '▶  Nastavi · ' + sm.emoji + ' ' + sm.name + ' · ' + (C.MAPS[savedInfo.map] || C.MAPS.classic).name + ' · Talas ' + savedInfo.wave, size: 13, r: 19, c1: '#6aa0ff', c2: '#4a6fe0', color: '#fff' });
       }
     } else text('Spajaj vojnike. Brani put. Pobijedi bosa.', C.W / 2, 176, 12.5, '#9fb0d8', 'center', '600');
-    text('Izaberi težinu', C.W / 2, 214, 13, '#dfe7ff', 'center', '800');
+    // map picker (which path the enemies walk)
+    if (scene === 'menu') {
+      C.MAP_KEYS.forEach((k, i) => {
+        const on = k === mapKey, mx = 20 + i * 108;
+        button('map:' + k, mx, 204, 104, 28, on
+          ? { r: 14, c1: '#6aa0ff', c2: '#4a6fe0', stroke: 'rgba(200,220,255,0.8)' }
+          : { r: 14, c1: 'rgba(255,255,255,0.07)', c2: 'rgba(255,255,255,0.03)' });
+        text(C.MAPS[k].emoji + ' ' + C.MAPS[k].name, mx + 52, 219, 12, on ? '#fff' : '#9fb0d8', 'center', '800');
+      });
+    }
     C.MODE_KEYS.forEach((k, i) => {
       const m = C.MODES[k];
-      const y = 234 + i * 104;
+      const y = 240 + i * 102;
       const col = MODE_COL[k];
-      button('mode:' + k, 20, y, 320, 92, { r: 20, c1: 'rgba(255,255,255,0.09)', c2: 'rgba(255,255,255,0.03)', stroke: col + 'aa' });
-      rr(20, y, 6, 92, 3);
+      button('mode:' + k, 20, y, 320, 90, { r: 20, c1: 'rgba(255,255,255,0.09)', c2: 'rgba(255,255,255,0.03)', stroke: col + 'aa' });
+      rr(20, y, 6, 90, 3);
       ctx.fillStyle = col; ctx.fill();
-      emoji(m.emoji, 62, y + 46, 38);
+      emoji(m.emoji, 62, y + 45, 38);
       text(m.name, 100, y + 28, 20, '#fff', 'left', '900');
       const hpTxt = m.hp < 1 ? 'slabiji neprijatelji' : m.hp > 1 ? 'jači neprijatelji' : 'normalni neprijatelji';
       text(m.coins + ' 🪙 · ' + m.lives + ' ❤️ · ' + hpTxt, 100, y + 52, 11.5, '#b6c3e6', 'left', '600');
@@ -1144,7 +1159,7 @@
     dim(0.72);
     card(40, 180, 280, 390, 22, 'rgba(18,24,48,0.95)', 'rgba(255,255,255,0.14)');
     text('PAUZA', C.W / 2, 218, 22, '#fff', 'center', '900');
-    text(C.MODES[modeKey].emoji + ' ' + C.MODES[modeKey].name + ' · Talas ' + s.wave, C.W / 2, 246, 12, '#9fb0d8', 'center', '600');
+    text(C.MODES[modeKey].emoji + ' ' + C.MODES[modeKey].name + ' · ' + mapLabel(s.mapKey) + ' · Talas ' + s.wave, C.W / 2, 246, 12, '#9fb0d8', 'center', '600');
     button('resume', 62, 270, 236, 46, { label: '▶  Nastavi', size: 15, r: 23, c1: '#6aa0ff', c2: '#4a6fe0' });
     button('guide', 62, 326, 236, 42, { label: '📖  Vodič', size: 14, r: 21 });
     const rsArmed = clock < restartArm;
@@ -1162,7 +1177,7 @@
     const canRev = !s.revived && s.wave >= 3;
     card(36, 150, 288, canRev ? 440 : 390, 24, 'rgba(18,24,48,0.96)', 'rgba(255,255,255,0.14)');
     text('KRAJ IGRE', C.W / 2, 194, 28, '#ff7b7b', 'center', '900');
-    text(C.MODES[modeKey].emoji + ' ' + C.MODES[modeKey].name, C.W / 2, 224, 12, '#9fb0d8', 'center', '700');
+    text(C.MODES[modeKey].emoji + ' ' + C.MODES[modeKey].name + ' · ' + mapLabel(s.mapKey), C.W / 2, 224, 12, '#9fb0d8', 'center', '700');
     text(String(s.wave), C.W / 2, 282, 56, '#fff', 'center', '900');
     text('TALAS', C.W / 2, 322, 11, '#8493bd', 'center', '700');
     if (newBest) text('🏆 Novi rekord!', C.W / 2, 350, 15, '#ffd84a', 'center', '800');
