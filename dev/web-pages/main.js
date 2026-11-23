@@ -65,8 +65,48 @@
   const SPEED_TIME = 60, SPEED_FREE = 3;
   let spd = { mult: 1, left: 0, uses: 0 };
 
+  // Resumable run: the state of an unfinished run is kept in localStorage and offered as "Nastavi" in the menu.
+  // Projectiles, floating texts and effects are not saved (they are only visual / in flight for a split second).
+  const RUN_KEY = 'md2_run';
+  const SKIP_KEYS = { mode: 1, proj: 1, texts: 1, rings: 1, sparks: 1, events: 1, announce: 1 };
+  let saveT = 2, discardArm = 0, savedInfo = null;
+  function readSaved() {
+    try {
+      const o = JSON.parse(load(RUN_KEY, 'null'));
+      if (!o || o.v !== 1 || !C.MODES[o.mode] || !o.s || !Array.isArray(o.s.slots) || o.s.slots.length !== C.NSLOTS || !(o.s.wave >= 2)) return null;
+      return o;
+    } catch (err) { return null; }
+  }
+  function clearSave() { try { localStorage.removeItem(RUN_KEY); } catch (err) { /* ignore */ } savedInfo = null; }
+  function saveRun() {
+    if (!s || !run) return;
+    if (s.over) { clearSave(); return; }
+    if (s.wave < 2) return;
+    const snap = {};
+    for (const k in s) if (!SKIP_KEYS[k]) snap[k] = s[k];
+    save(RUN_KEY, JSON.stringify({ v: 1, mode: modeKey, s: snap, run, spd: { uses: spd.uses, left: spd.left } }));
+    savedInfo = { mode: modeKey, wave: s.wave };
+  }
+  function resumeRun() {
+    const o = readSaved();
+    if (!o) { clearSave(); return false; }
+    finishRun();
+    modeKey = o.mode;
+    s = C.create(o.mode, {});
+    Object.assign(s, o.s);
+    s.mode = C.MODES[o.mode];
+    for (const e of s.enemies) e.pend = 0; // damage "in flight" was not saved
+    run = o.run;
+    spd = { mult: 1, left: o.spd && o.spd.left > 0 ? o.spd.left : 0, uses: o.spd ? o.spd.uses | 0 : 0 };
+    sel = -1; drag = null; newBest = false;
+    scene = 'pause'; // give the player a moment before the enemies move
+    return true;
+  }
+  { const o = readSaved(); if (o) savedInfo = { mode: o.mode, wave: o.s.wave }; }
+
   function startGame(k) {
     finishRun();
+    clearSave(); discardArm = 0;
     spd = { mult: 1, left: 0, uses: 0 };
     modeKey = k;
     s = C.create(k, META.coreMeta(WINTER ? 1.1 : 1));
@@ -180,7 +220,10 @@
   }
 
   function act(id) {
-    if (id.startsWith('mode:')) { startGame(id.slice(5)); return; }
+    if (id.startsWith('mode:')) {
+      if (savedInfo && clock > discardArm) { discardArm = clock + 3; say('⚠️ Nova igra briše spremljenu. Dodirni ponovo.'); return; }
+      startGame(id.slice(5)); return;
+    }
     if (id.startsWith('up:')) {
       const k = id.slice(3);
       if (META.buyUp(k)) { SND.play('merge', { tier: 3 }); say('✅ ' + META.UPS[k].name + ' nadogradnja!'); } else SND.play('error');
@@ -244,9 +287,10 @@
         if (a.kind === 'sell') { const g = C.sell(s, a.slot); if (g > 0) say('Prodano +' + g + ' 🪙'); if (sel === a.slot) sel = -1; }
         break;
       }
-      case 'pause': scene = 'pause'; break;
+      case 'pause': scene = 'pause'; saveRun(); break;
       case 'resume': scene = 'play'; break;
-      case 'menu': finishRun(); scene = 'menu'; break;
+      case 'continue': if (!resumeRun()) SND.play('error'); break;
+      case 'menu': finishRun(); saveRun(); scene = 'menu'; break;
       case 'guide': guideFrom = scene; scene = 'guide'; break;
       case 'closeGuide': save('md2_seen', '1'); scene = guideFrom === 'pause' ? 'pause' : 'menu'; guideFrom = 'menu'; break;
       case 'restart': startGame(modeKey); break;
@@ -313,7 +357,7 @@
   canvas.addEventListener('contextmenu', function (e) { e.preventDefault(); });
   document.addEventListener('visibilitychange', function () {
     hidden = document.hidden;
-    if (hidden) { finishRun(); META.save(); }
+    if (hidden) { finishRun(); saveRun(); META.save(); }
     if (hidden) SND.suspend(); else SND.resume();
     if (hidden && scene === 'play') scene = 'pause';
   });
@@ -878,7 +922,12 @@
     drawToggles(10, 12);
     starPill(250, 12);
     titleText(92);
-    text('Spajaj vojnike. Brani put. Pobijedi bosa.', C.W / 2, 176, 12.5, '#9fb0d8', 'center', '600');
+    if (savedInfo) {
+      if (scene === 'menu') {
+        const sm = C.MODES[savedInfo.mode];
+        button('continue', 20, 160, 320, 38, { label: '▶  Nastavi · ' + sm.emoji + ' ' + sm.name + ' · Talas ' + savedInfo.wave, size: 13.5, r: 19, c1: '#6aa0ff', c2: '#4a6fe0', color: '#fff' });
+      }
+    } else text('Spajaj vojnike. Brani put. Pobijedi bosa.', C.W / 2, 176, 12.5, '#9fb0d8', 'center', '600');
     text('Izaberi težinu', C.W / 2, 214, 13, '#dfe7ff', 'center', '800');
     C.MODE_KEYS.forEach((k, i) => {
       const m = C.MODES[k];
@@ -1145,6 +1194,7 @@
         if (spd.left <= 0) { spd.left = 0; spd.mult = 1; say('⏩ Ubrzanje završeno'); }
       }
       for (let i = 0, k = spd.mult; i < k && !s.over; i++) C.update(s, dt);
+      saveT -= dt; if (saveT <= 0) { saveT = 2; saveRun(); }
       for (const e of s.events) {
         SND.play(e.k, e);
         if (e.k === 'kill') META.onKill(1);
@@ -1161,7 +1211,7 @@
       s.events.length = 0;
       if (sel >= 0 && !s.slots[sel]) sel = -1;
       if (s.wave > best[modeKey]) { best[modeKey] = s.wave; save('md2_best_' + modeKey, String(s.wave)); newBest = s.wave > 1; }
-      if (s.over) { scene = 'over'; overAt = now; drag = null; finishRun(); }
+      if (s.over) { scene = 'over'; overAt = now; drag = null; finishRun(); clearSave(); }
     }
     SND.setMode(scene === 'play' || scene === 'pause' ? (C.isBossWave(s.wave) && s.queue.length ? 'boss' : 'play') : scene === 'over' ? 'off' : 'menu');
     SND.duck(scene === 'pause');
