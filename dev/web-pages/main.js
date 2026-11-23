@@ -68,7 +68,7 @@
   // Resumable run: the state of an unfinished run is kept in localStorage and offered as "Nastavi" in the menu.
   // Projectiles, floating texts and effects are not saved (they are only visual / in flight for a split second).
   const RUN_KEY = 'md2_run';
-  const SKIP_KEYS = { mode: 1, geo: 1, proj: 1, texts: 1, rings: 1, sparks: 1, events: 1, announce: 1 };
+  const SKIP_KEYS = { mode: 1, geo: 1, arcs: 1, proj: 1, texts: 1, rings: 1, sparks: 1, events: 1, announce: 1 };
   let saveT = 2, discardArm = 0, savedInfo = null, restartArm = 0;
   let mapKey = load('md2_map', 'classic');
   if (!C.MAPS[mapKey]) mapKey = 'classic';
@@ -98,7 +98,9 @@
     finishRun();
     modeKey = o.mode;
     s = C.create(o.mode, {}, o.s.mapKey);
+    const bought0 = s.bought;
     Object.assign(s, o.s);
+    s.bought = Object.assign(bought0, o.s.bought); // saves from before newer units do not have all keys
     s.mode = C.MODES[o.mode];
     for (const e of s.enemies) e.pend = 0; // damage "in flight" was not saved
     run = o.run;
@@ -174,6 +176,7 @@
     const secs = parseInt(Q.get('demo'), 10) > 1 ? parseInt(Q.get('demo'), 10) : 150;
     for (let i = 0, n = secs * 20; i < n; i++) { C.update(s, 0.05); if (i % 6 === 0) C.bot(s); if (s.over) break; }
     for (let i = 0; i < 8; i++) C.update(s, 0.05);
+    if (Q.get('give')) { s.coins += 9999; Q.get('give').split(',').forEach(function (k) { if (C.TYPES[k]) C.buy(s, k); }); } // testing: ?give=archer,banner,...
     if (Q.get('sel')) sel = parseInt(Q.get('sel'), 10);
     if (Q.get('boss')) { s.wave = 9; s.waveTimer = 14; s.nextQ = ['boss', 'grunt', 'grunt']; }
   }
@@ -577,6 +580,7 @@
       ctx.strokeStyle = 'rgba(127,216,255,0.9)'; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.arc(e.x, e.y, size * 0.55, 0, Math.PI * 2); ctx.stroke();
     }
+    if (e.burnT > 0) emoji('🔥', e.x + size * 0.34, e.y - size * 0.05, 13);
     if (e.bname) text(e.bname, e.x, e.y - size / 2 - 17, 9, '#ffb3a0', 'center', '800');
     const bw = e.kind === 'boss' ? 42 : 26, bh = e.kind === 'boss' ? 6 : 4;
     const bx = e.x - bw / 2, by = e.y - size / 2 - 8;
@@ -683,7 +687,9 @@
     rr(mx, my, mw, 4, 2); ctx.fillStyle = 'rgba(0,0,0,0.40)'; ctx.fill();
     let prog;
     if (u.type === 'miner') prog = Math.min(1, u.acc || 0);
+    else if (T.aura) prog = 0;
     else prog = u.cd <= 0 ? 1 : Math.max(0, Math.min(1, 1 - u.cd * T.rate));
+    if (T.aura) text('+' + Math.round(C.stats(u.type, u.tier).aura * 100) + '%', x, y0 + 10, 11, '#ffffff', 'center', '800');
     if (prog > 0.02) {
       rr(mx, my, Math.max(4, mw * prog), 4, 2);
       ctx.fillStyle = u.type === 'miner' ? '#7ff0e6' : (prog >= 1 ? '#ffffff' : 'rgba(255,255,255,0.75)');
@@ -694,7 +700,7 @@
     ctx.fillStyle = tc; ctx.fill();
     text('Lv' + u.tier, x, y0 + sz - 1.5, 10, '#111', 'center', '800');
     // muzzle flash
-    if (!opts.noFlash && u.type !== 'miner' && u.flash > 0) {
+    if (!opts.noFlash && u.type !== 'miner' && !T.aura && u.flash > 0) {
       const fx = x + Math.cos(u.aim) * (sz / 2), fy = y + Math.sin(u.aim) * (sz / 2);
       const a = Math.min(1, u.flash / 0.14);
       const rg = ctx.createRadialGradient(fx, fy, 0, fx, fy, 11);
@@ -713,6 +719,16 @@
       rr(sx, sy, C.CELL, C.CELL, 14);
       ctx.fillStyle = 'rgba(255,255,255,0.045)'; ctx.fill();
       ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(255,255,255,0.09)'; ctx.stroke();
+    }
+    // cells boosted by a banner get a dashed gold outline
+    for (let i = 0; i < C.NSLOTS; i++) {
+      const u = s.slots[i];
+      if (!u || !C.TYPES[u.type].aura) continue;
+      for (const j of C.neighbours(i)) {
+        const p = C.slotPos(j);
+        rr(p[0] - 32, p[1] - 32, 64, 64, 15);
+        ctx.setLineDash([5, 5]); ctx.strokeStyle = 'rgba(244,114,182,0.7)'; ctx.lineWidth = 1.6; ctx.stroke(); ctx.setLineDash([]);
+      }
     }
     // advice highlight (merge)
     if (adv && adv.kind === 'merge' && !(drag && drag.moved)) {
@@ -789,6 +805,20 @@
         rg.addColorStop(0, '#ffffff'); rg.addColorStop(0.5, '#c9a2ff'); rg.addColorStop(1, 'rgba(160,100,255,0)');
         ctx.fillStyle = rg;
         ctx.beginPath(); ctx.arc(p.x, p.y, 7, 0, Math.PI * 2); ctx.fill();
+      } else if (p.type === 'flame') {
+        for (let k = 3; k >= 1; k--) {
+          ctx.fillStyle = 'rgba(255,120,40,' + (0.16 * (4 - k)) + ')';
+          ctx.beginPath(); ctx.arc(p.x - ux * k * 5, p.y - uy * k * 5, 5.5 - k * 0.7, 0, Math.PI * 2); ctx.fill();
+        }
+        const fg = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, 7);
+        fg.addColorStop(0, '#fff4c2'); fg.addColorStop(0.5, '#ff9a3c'); fg.addColorStop(1, 'rgba(255,60,20,0)');
+        ctx.fillStyle = fg;
+        ctx.beginPath(); ctx.arc(p.x, p.y, 7, 0, Math.PI * 2); ctx.fill();
+      } else if (p.type === 'tesla') {
+        ctx.strokeStyle = 'rgba(120,230,255,0.6)'; ctx.lineWidth = 3.4; ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(p.x - ux * 26, p.y - uy * 26); ctx.lineTo(p.x, p.y); ctx.stroke();
+        ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.4;
+        ctx.beginPath(); ctx.moveTo(p.x - ux * 18, p.y - uy * 18); ctx.lineTo(p.x, p.y); ctx.stroke();
       } else if (p.type === 'sniper') {
         ctx.strokeStyle = 'rgba(255,243,176,0.55)'; ctx.lineWidth = 3; ctx.lineCap = 'round';
         ctx.beginPath(); ctx.moveTo(p.x - ux * 46, p.y - uy * 46); ctx.lineTo(p.x, p.y); ctx.stroke();
@@ -824,6 +854,22 @@
         ctx.stroke();
       }
     }
+    // lightning arcs (chain jumps)
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    for (const a of s.arcs) {
+      const k = a.t / a.life;
+      ctx.globalAlpha = 1 - k;
+      const dx = a.x2 - a.x1, dy = a.y2 - a.y1, len = Math.hypot(dx, dy) || 1;
+      const nx = -dy / len, ny = dx / len;
+      ctx.beginPath(); ctx.moveTo(a.x1, a.y1);
+      for (let i = 1; i <= 3; i++) {
+        const f = i / 4, off = Math.sin(a.x1 * 7 + a.y2 * 3 + i * 2.1 + Math.floor(a.t * 40)) * 7;
+        ctx.lineTo(a.x1 + dx * f + nx * off, a.y1 + dy * f + ny * off);
+      }
+      ctx.lineTo(a.x2, a.y2);
+      ctx.strokeStyle = 'rgba(120,230,255,0.9)'; ctx.lineWidth = 3.2; ctx.stroke();
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.2; ctx.stroke();
+    }
     ctx.globalAlpha = 1;
     for (const a of s.texts) {
       const k = a.t / a.life;
@@ -849,9 +895,12 @@
       if (u.type === 'miner') {
         l2 = 'Proizvodi +' + (st.income * s.mode.income).toFixed(2) + ' 🪙/s';
         l3 = u.tier < C.MAXTIER ? 'Sljedeći nivo: +' + (C.stats('miner', u.tier + 1).income * s.mode.income).toFixed(2) + ' 🪙/s' : 'Maksimalni nivo';
+      } else if (T.aura) {
+        l2 = 'Pojačava susjedne +' + Math.round(st.aura * 100) + '% štete';
+        l3 = u.tier < C.MAXTIER ? 'Sljedeći nivo +' + Math.round(C.stats(u.type, u.tier + 1).aura * 100) + '%' : 'Maksimalni nivo';
       } else {
         l2 = 'Šteta ' + fmt(st.dmg) + ' · ' + T.rate + '/s · DPS ' + fmt(st.dps);
-        const extra = T.splash ? 'Šteta po površini · ' : T.slow ? 'Usporava 40% · ' : T.target ? 'Cilja najjačeg · ' : '';
+        const extra = T.splash ? 'Šteta po površini · ' : T.slow ? 'Usporava 40% · ' : T.burn ? 'Pali metu 3s · ' : T.chain ? 'Skače na ' + T.chain + ' mete · ' : T.target ? 'Cilja najjačeg · ' : '';
         l3 = extra + (u.tier < C.MAXTIER ? 'Sljedeći nivo DPS ' + fmt(C.stats(u.type, u.tier + 1).dps) : 'Maksimalni nivo');
       }
       text(l2, x + 54, y + 28, 11, '#dfe7ff', 'left', '600');
@@ -887,17 +936,18 @@
         stroke: rec ? 'rgba(255,216,74,' + (0.55 + 0.45 * pulse) + ')' : ok ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.10)'
       });
       ctx.globalAlpha = ok ? 1 : 0.6;
-      emoji(T.emoji, r.x + 22, r.y + 26, 26);
-      text(T.name, r.x + 42, r.y + 14, 12, '#fff', 'left', '800');
-      text('🪙 ' + cst, r.x + 42, r.y + 30, 14, '#ffe08a', 'left', '800');
-      const tag = k === 'miner' ? '+' + (T.income * s.mode.income).toFixed(2) + ' 🪙/s' : 'DPS ' + fmt(T.dmg * T.rate);
-      text(tag, r.x + 42, r.y + 44, 9.5, 'rgba(255,255,255,0.78)', 'left', '700');
+      emoji(T.emoji, r.x + 22, r.y + 25, 26);
+      text(T.name, r.x + 42, r.y + 12, 12, '#fff', 'left', '800');
+      text('🪙 ' + cst, r.x + 42, r.y + 27, 14, '#ffe08a', 'left', '800');
+      const tag = k === 'miner' ? '+' + (T.income * s.mode.income).toFixed(2) + ' 🪙/s' : T.aura ? 'Aura +' + Math.round(T.aura * 100) + '%' : 'DPS ' + fmt(T.dmg * T.rate);
+      text(tag, r.x + 42, r.y + 41, 11, 'rgba(255,255,255,0.78)', 'left', '700');
       ctx.globalAlpha = 1;
       if (rec) emoji('⭐', r.x + r.w - 13, r.y + r.h - 13, 12);
     });
     if (selling) {
       const u = s.slots[drag.from];
-      const y0 = C.SHOP_Y - 4, h = 2 * C.SHOP_BH + 14;
+      const lastR = C.shopRect(C.TYPE_KEYS.length - 1);
+      const y0 = C.SHOP_Y - 4, h = lastR.y + C.SHOP_BH - y0 + 4;
       rr(8, y0, 344, h, 16);
       ctx.fillStyle = 'rgba(160,30,50,0.78)'; ctx.fill();
       ctx.strokeStyle = 'rgba(255,140,140,0.8)'; ctx.lineWidth = 2; ctx.stroke();
@@ -1196,32 +1246,32 @@
     drawBackground();
     text('Vodič', C.W / 2, 34, 24, '#fff', 'center', '900');
     const tips = [
-      '1. Kupi vojnike dolje. Rudar ⛏️ ne puca, ali proizvodi novčiće 🪙.',
-      '2. Povuci dva ISTA vojnika (isti nivo) jedan na drugog — spoje se u jačeg.',
-      '3. Tapni vojnika za statistiku. Povuci ga dolje na dugmad za prodaju.',
-      '4. Svaki 10. talas je 👹 BOSS. Upozorenje stiže talas ranije.',
-      '5. ⭐ na dugmetu i 💡 savjet pokazuju šta se trenutno najviše isplati.'
+      '1. Povuci dva ISTA vojnika jedan na drugog da ih spojiš.',
+      '2. Tapni vojnika za statistiku, povuci ga dolje za prodaju.',
+      '3. Svaki 10. talas je 👹 BOSS. ⭐ i 💡 pokazuju najbolji potez.'
     ];
     let y = 66;
     for (const t of tips) {
-      const lines = wrap(t, 330, 11.5, '600');
-      for (const l of lines) { text(l, 16, y, 11.5, '#dfe7ff', 'left', '600'); y += 15; }
-      y += 3;
+      const lines = wrap(t, 336, 11.5, '600');
+      for (const l of lines) { text(l, 12, y, 11.5, '#dfe7ff', 'left', '600'); y += 15; }
+      y += 2;
     }
-    y += 4;
+    y += 2;
     C.TYPE_KEYS.forEach((k, i) => {
       const T = C.TYPES[k];
-      const ry = y + i * 66;
-      card(10, ry, 340, 61, 14);
-      rr(18, ry + 10, 40, 40, 11);
-      ctx.fillStyle = vgrad(ry + 10, ry + 50, T.c1, T.c2); ctx.fill();
-      emoji(T.emoji, 38, ry + 30, 22);
-      text(T.name, 68, ry + 11, 13, '#fff', 'left', '800');
-      text('🪙 ' + T.cost, 342, ry + 11, 12, '#ffe08a', 'right', '800');
-      const stat = k === 'miner' ? 'Proizvodi +' + T.income + ' 🪙/s' : 'Šteta ' + T.dmg + ' · ' + T.rate + '/s · DPS ' + fmt(T.dmg * T.rate);
-      text(stat, 68, ry + 25, 10.5, '#9fb4ff', 'left', '700');
-      text(T.desc, 68, ry + 38, 10, '#a9b6dc', 'left', '500');
-      text('Najbolje: ' + T.best.toLowerCase(), 68, ry + 51, 10, '#7fe3b0', 'left', '600');
+      const ry = y + i * 59;
+      card(10, ry, 340, 55, 13);
+      rr(18, ry + 8, 39, 39, 11);
+      ctx.fillStyle = vgrad(ry + 8, ry + 47, T.c1, T.c2); ctx.fill();
+      emoji(T.emoji, 37.5, ry + 28, 22);
+      text(T.name, 66, ry + 10, 13, '#fff', 'left', '800');
+      text('🪙 ' + T.cost, 342, ry + 10, 12, '#ffe08a', 'right', '800');
+      const stat = k === 'miner' ? 'Proizvodi +' + T.income + ' 🪙/s'
+        : T.aura ? 'Aura +' + Math.round(T.aura * 100) + '% štete susjedima (+' + Math.round(T.auraStep * 100) + '% po nivou)'
+        : 'Šteta ' + T.dmg + ' · ' + T.rate + '/s · DPS ' + fmt(T.dmg * T.rate);
+      text(stat, 66, ry + 24, 11, '#9fb4ff', 'left', '700');
+      text(T.desc, 66, ry + 37, 11, '#a9b6dc', 'left', '500');
+      text('Najbolje: ' + T.best.toLowerCase(), 66, ry + 50, 11, '#7fe3b0', 'left', '600');
     });
     const first = load('md2_seen', '0') !== '1';
     button('closeGuide', 70, 676, 220, 46, { label: first ? 'Razumijem, igraj!' : 'Zatvori', size: 15, r: 23, c1: '#6aa0ff', c2: '#4a6fe0', color: '#fff' });
