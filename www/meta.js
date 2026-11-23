@@ -60,6 +60,26 @@
     };
   }
 
+  // Validates/cleans a progress object coming from outside (backup code). Returns a safe copy or null.
+  function sanitize(j) {
+    if (!j || typeof j !== 'object' || Array.isArray(j)) return null;
+    const d = fresh();
+    const num = (v, max) => { v = Number(v); return isFinite(v) ? Math.max(0, Math.min(max, Math.floor(v))) : 0; };
+    d.stars = num(j.stars, 1e7);
+    for (const k of Object.keys(UPS)) d.ups[k] = Math.min(UPS[k].max, num(j.ups && j.ups[k], 99));
+    d.streak = num(j.streak, 100000); d.bestStreak = num(j.bestStreak, 100000);
+    d.lastDay = isFinite(Number(j.lastDay)) ? Math.floor(Number(j.lastDay)) : -1;
+    d.bonus = num(j.bonus, 100000);
+    for (const a of ACH) if (j.ach && j.ach[a.id]) d.ach[a.id] = num(j.ach[a.id], 1e14) || 1;
+    d.tasks = { day: -1, list: [] }; // daily tasks are regenerated for today
+    const st = j.st || {};
+    for (const k of ['games', 'kills', 'merges', 'buys', 'calls', 'videos', 'chests']) d.st[k] = num(st[k], 1e9);
+    d.st.maxTier = Math.max(1, num(st.maxTier, 99));
+    for (const k in (st.bestWave || {})) if (/^[a-z]{1,10}$/.test(k)) d.st.bestWave[k] = num(st.bestWave[k], 9999);
+    for (const k of BOSS_KEYS) if (st.bossKills && st.bossKills[k]) d.st.bossKills[k] = num(st.bossKills[k], 1e6);
+    return d;
+  }
+
   function seeded(n) { // tiny deterministic PRNG for the daily task pick
     let x = (n * 2654435761) >>> 0;
     return function () { x = (x * 1664525 + 1013904223) >>> 0; return x / 4294967296; };
@@ -216,6 +236,6 @@
     return api;
   }
 
-  root.Meta = { create: create, fresh: fresh, dayNum: dayNum };
+  root.Meta = { create: create, fresh: fresh, dayNum: dayNum, sanitize: sanitize };
   if (typeof module !== 'undefined') module.exports = root.Meta;
 })(typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this));

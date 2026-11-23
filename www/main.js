@@ -107,6 +107,52 @@
     scene = 'pause'; // give the player a moment before the enemies move
     return true;
   }
+  // ---- progress backup: export / import a text code (progress otherwise lives only on this device) ----
+  let importing = false;
+  function fnv(str) { let h = 0x811c9dc5; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return ('00000000' + h.toString(16)).slice(-8); }
+  function makeCode() {
+    const payload = { v: 1, meta: META.data, best: Object.assign({}, best), at: Date.now() };
+    const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(payload)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    return 'MD1.' + b64 + '.' + fnv(b64);
+  }
+  function parseCode(str) {
+    const m = /^MD1\.([A-Za-z0-9_-]+)\.([0-9a-f]{8})$/.exec(String(str || '').replace(/\s+/g, ''));
+    if (!m || fnv(m[1]) !== m[2]) return null;
+    try {
+      let b = m[1].replace(/-/g, '+').replace(/_/g, '/');
+      while (b.length % 4) b += '=';
+      const o = JSON.parse(decodeURIComponent(escape(atob(b))));
+      if (!o || o.v !== 1) return null;
+      const meta = window.Meta.sanitize(o.meta);
+      if (!meta) return null;
+      const bestOut = {};
+      C.MODE_KEYS.forEach(k => { bestOut[k] = Math.max(0, Math.min(9999, parseInt(o.best && o.best[k], 10) || 0)); });
+      return { meta, best: bestOut };
+    } catch (err) { return null; }
+  }
+  function exportProgress() {
+    const code = makeCode();
+    const manual = function () { try { window.prompt('Kopiraj ovaj kod i sačuvaj ga na sigurnom mjestu:', code); } catch (err) { /* ignore */ } };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(code).then(function () { say('📋 Kod kopiran. Sačuvaj ga negdje.'); }, manual);
+    } else manual();
+  }
+  function importProgress() {
+    let str = null;
+    try { str = window.prompt('Zalijepi kod sigurnosne kopije:', ''); } catch (err) { /* ignore */ }
+    if (!str) return;
+    const r = parseCode(str);
+    if (!r) { SND.play('error'); say('❌ Neispravan kod'); return; }
+    let ok = false;
+    try { ok = window.confirm('Uvoz zamjenjuje trenutni napredak (⭐ ' + META.stars + ') napretkom iz koda (⭐ ' + r.meta.stars + ').\nNastaviti?'); } catch (err) { /* ignore */ }
+    if (!ok) return;
+    importing = true; // stops the autosave from overwriting what we are about to write
+    save('md3_meta', JSON.stringify(r.meta));
+    C.MODE_KEYS.forEach(k => save('md2_best_' + k, String(r.best[k])));
+    clearSave();
+    location.reload();
+  }
+
   { const o = readSaved(); if (o) savedInfo = { mode: o.mode, map: o.s.mapKey, wave: o.s.wave }; }
 
   function startGame(k) {
@@ -290,6 +336,9 @@
         }
         break;
       }
+      case 'backup': scene = 'backup'; break;
+      case 'bkExport': exportProgress(); break;
+      case 'bkImport': importProgress(); break;
       case 'tmusic': SND.toggleMusic(); break;
       case 'tsfx': SND.toggleSfx(); break;
       case 'auto': {
@@ -379,7 +428,7 @@
   canvas.addEventListener('contextmenu', function (e) { e.preventDefault(); });
   document.addEventListener('visibilitychange', function () {
     hidden = document.hidden;
-    if (hidden) { finishRun(); saveRun(); META.save(); }
+    if (hidden && !importing) { finishRun(); saveRun(); META.save(); }
     if (hidden) SND.suspend(); else SND.resume();
     if (hidden && scene === 'play') scene = 'pause';
   });
@@ -947,6 +996,10 @@
     drawBackground();
     drawToggles(10, 12);
     starPill(250, 12);
+    if (scene === 'menu') {
+      button('backup', 154, 12, 40, 34, { r: 12 });
+      text('💾', 174, 30, 17, '#fff', 'center', '700');
+    }
     titleText(92);
     if (savedInfo) {
       if (scene === 'menu') {
@@ -1030,6 +1083,26 @@
     drawBackground();
     if (withStars) { text(title, 16, 34, 22, '#fff', 'left', '900'); starPill(250, 14); }
     else text(title, C.W / 2, 34, 24, '#fff', 'center', '900');
+  }
+
+  function drawBackup() {
+    screenHead('💾 Sigurnosna kopija', false);
+    card(16, 70, 328, 150, 18);
+    let y = 94;
+    const para = [
+      'Tvoj napredak (⭐, nadogradnje, trofeji, statistika i rekordi) je spremljen samo na ovom uređaju.',
+      'Ako obrišeš podatke aplikacije ili promijeniš telefon, gubi se.',
+      'Izvezi kod i sačuvaj ga negdje (npr. poruka sebi). Na novom uređaju uvezi isti kod.'
+    ];
+    para.forEach(function (p) {
+      wrap(p, 296, 12.5, '600').forEach(function (l) { text(l, 30, y, 12.5, '#dfe7ff', 'left', '600'); y += 17; });
+      y += 7;
+    });
+    button('bkExport', 50, 250, 260, 50, { label: '📤  Izvezi napredak', size: 15, r: 25, c1: '#6aa0ff', c2: '#4a6fe0' });
+    button('bkImport', 50, 312, 260, 50, { label: '📥  Uvezi napredak', size: 15, r: 25 });
+    text('Kod se kopira u međuspremnik.', C.W / 2, 386, 11, '#8493bd', 'center', '600');
+    text('Runda u toku se ne uključuje.', C.W / 2, 404, 11, '#8493bd', 'center', '600');
+    button('back', 70, 676, 220, 46, { label: 'Nazad', size: 15, r: 23 });
   }
 
   function drawTasks() {
@@ -1207,6 +1280,7 @@
     else if (scene === 'over') drawOver();
     else if (scene === 'daily') drawDaily();
     else if (scene === 'tasks') drawTasks();
+    else if (scene === 'backup') drawBackup();
     else if (scene === 'trophies') drawTrophies();
     else if (scene === 'ups') drawUps();
     else if (scene === 'chest') drawChest();
@@ -1226,7 +1300,7 @@
     if (toast.t > 0) toast.t -= dt;
     else if (META.popups.length) { SND.play('ach'); say(META.popups.shift()); }
     if (scene === 'menu' && !dailyShown && META.dailyAvailable()) scene = 'daily';
-    metaSave -= dt; if (metaSave <= 0) { META.save(); metaSave = 3; }
+    metaSave -= dt; if (metaSave <= 0) { if (!importing) META.save(); metaSave = 3; }
     if (scene === 'play' && !hidden) {
       if (spd.mult > 1) {
         spd.left -= dt;
