@@ -1,10 +1,11 @@
 # Merge Defense
 
-Offline tower-defense igra za Android. Kupuj vojnike, spajaj iste u jače, brani put.
+Offline tower-defense game for Android. Buy units, merge identical ones into stronger ones, defend the path.
 
-- Igra: `www/` (HTML canvas, bez interneta)
-- Težine: Lagano / Srednje / Teško
-- APK se gradi automatski preko GitHub Actions (`.github/workflows/build-apk.yml`)
-- Skini `merge-defense.apk` iz **Releases** i instaliraj na telefon
-- `keystore/debug.keystore` je fiksni DEBUG ključ (da se nove verzije instaliraju preko starih). Nije za Play Store.
-- Balans test: `npm run sim`
+- Game: `www/` (HTML canvas, works offline)
+- Difficulties: Easy / Normal / Hard
+- Maps: Classic / Zigzag / Spiral
+- The APK is built automatically by GitHub Actions (`.github/workflows/build-apk.yml`)
+- Download `merge-defense.apk` from **Releases** and install it on an Android phone
+- `keystore/debug.keystore` is a fixed DEBUG key (so new versions install over old ones). Not for the Play Store.
+- Balance test: `npm run sim` (`node tools/sim.js [runs] [simple|smart|both] [map|all]`)

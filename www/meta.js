@@ -6,10 +6,10 @@
   const BOSS_KEYS = ['golem', 'drake', 'guard', 'necro'];
 
   const UPS = {
-    start:  { name: 'Startni novčići', emoji: '💰', max: 5, costs: [3, 5, 8, 12, 18], desc: l => '+' + l * 5 + ' 🪙 na početku igre', per: '+5 🪙' },
-    income: { name: 'Prihod',          emoji: '📈', max: 5, costs: [4, 6, 9, 13, 19], desc: l => '+' + l * 10 + '% svih novčića', per: '+10%' },
-    life:   { name: 'Dodatni život',   emoji: '❤️', max: 3, costs: [6, 12, 20],       desc: l => '+' + l + ' života', per: '+1 ❤️' },
-    dmg:    { name: 'Jači vojnici',    emoji: '💥', max: 5, costs: [4, 7, 10, 14, 20], desc: l => '+' + l * 8 + '% štete', per: '+8%' }
+    start:  { name: 'Starting coins', emoji: '💰', max: 5, costs: [3, 5, 8, 12, 18], desc: l => '+' + l * 5 + ' 🪙 at the start of a game', per: '+5 🪙' },
+    income: { name: 'Income',          emoji: '📈', max: 5, costs: [4, 6, 9, 13, 19], desc: l => '+' + l * 10 + '% of all coins', per: '+10%' },
+    life:   { name: 'Extra life',   emoji: '❤️', max: 3, costs: [6, 12, 20],       desc: l => '+' + l + ' lives', per: '+1 ❤️' },
+    dmg:    { name: 'Stronger units',    emoji: '💥', max: 5, costs: [4, 7, 10, 14, 20], desc: l => '+' + l * 8 + '% damage', per: '+8%' }
   };
   const UP_KEYS = ['start', 'income', 'life', 'dmg'];
 
@@ -17,30 +17,30 @@
   const DAILY_STARS_DAY7 = 5;
 
   const ACH = [
-    { id: 'merge1',  emoji: '🔗', name: 'Prvo spajanje',       desc: 'Spoji dva vojnika',              stars: 1, f: s => s.merges >= 1 },
-    { id: 'merge50', emoji: '⚙️', name: 'Majstor spajanja',    desc: 'Spoji 50 puta',                  stars: 2, f: s => s.merges >= 50 },
-    { id: 'tier5',   emoji: '🥉', name: 'Nivo 5',              desc: 'Napravi vojnika nivoa 5',        stars: 2, f: s => s.maxTier >= 5 },
-    { id: 'tier8',   emoji: '👑', name: 'Maksimalni nivo',     desc: 'Napravi vojnika nivoa 8',        stars: 5, f: s => s.maxTier >= 8 },
-    { id: 'kill100', emoji: '🧟', name: 'Lovac',               desc: 'Ubij 100 neprijatelja',          stars: 1, f: s => s.kills >= 100 },
-    { id: 'kill1k',  emoji: '💀', name: 'Pustošenje',          desc: 'Ubij 1000 neprijatelja',         stars: 4, f: s => s.kills >= 1000 },
-    { id: 'boss1',   emoji: '👹', name: 'Prvi boss',           desc: 'Pobijedi bilo kojeg bosa',       stars: 3, f: s => bossTotal(s) >= 1 },
-    { id: 'bossAll', emoji: '🏹', name: 'Lovac na bossove',    desc: 'Pobijedi sva 4 različita bosa',  stars: 8, f: s => BOSS_KEYS.every(k => (s.bossKills[k] || 0) > 0) },
-    { id: 'w20',     emoji: '🌊', name: 'Talas 20',            desc: 'Dođi do 20. talasa',             stars: 3, f: s => bestAny(s) >= 20 },
-    { id: 'w30',     emoji: '🚀', name: 'Talas 30',            desc: 'Dođi do 30. talasa',             stars: 6, f: s => bestAny(s) >= 30 },
-    { id: 'hard15',  emoji: '🔥', name: 'Otporan',             desc: 'Talas 15 na Teško',              stars: 5, f: s => (s.bestWave.hard || 0) >= 15 },
-    { id: 'games10', emoji: '🎮', name: 'Vjeran igrač',        desc: 'Odigraj 10 igara',               stars: 2, f: s => s.games >= 10 },
-    { id: 'video3',  emoji: '🎬', name: 'Gledalac',            desc: 'Iskoristi 3 video bonusa',       stars: 1, f: s => s.videos >= 3 },
-    { id: 'chest5',  emoji: '🎁', name: 'Sakupljač blaga',     desc: 'Otvori 5 sanduka',               stars: 2, f: s => s.chests >= 5 },
-    { id: 'streak7', emoji: '📆', name: 'Cijela sedmica',      desc: 'Niz od 7 dana',                  stars: 5, f: s => s.bestStreak >= 7 }
+    { id: 'merge1',  emoji: '🔗', name: 'First merge',         desc: 'Merge two units',              stars: 1, f: s => s.merges >= 1 },
+    { id: 'merge50', emoji: '⚙️', name: 'Merge master',        desc: 'Merge 50 times',                  stars: 2, f: s => s.merges >= 50 },
+    { id: 'tier5',   emoji: '🥉', name: 'Level 5',            desc: 'Make a level 5 unit',        stars: 2, f: s => s.maxTier >= 5 },
+    { id: 'tier8',   emoji: '👑', name: 'Max level',          desc: 'Make a level 8 unit',        stars: 5, f: s => s.maxTier >= 8 },
+    { id: 'kill100', emoji: '🧟', name: 'Hunter',             desc: 'Kill 100 enemies',          stars: 1, f: s => s.kills >= 100 },
+    { id: 'kill1k',  emoji: '💀', name: 'Devastation',        desc: 'Kill 1000 enemies',         stars: 4, f: s => s.kills >= 1000 },
+    { id: 'boss1',   emoji: '👹', name: 'First boss',         desc: 'Defeat any boss',       stars: 3, f: s => bossTotal(s) >= 1 },
+    { id: 'bossAll', emoji: '🏹', name: 'Boss hunter',        desc: 'Defeat all 4 different bosses',  stars: 8, f: s => BOSS_KEYS.every(k => (s.bossKills[k] || 0) > 0) },
+    { id: 'w20',     emoji: '🌊', name: 'Wave 20',            desc: 'Reach wave 20',             stars: 3, f: s => bestAny(s) >= 20 },
+    { id: 'w30',     emoji: '🚀', name: 'Wave 30',            desc: 'Reach wave 30',             stars: 6, f: s => bestAny(s) >= 30 },
+    { id: 'hard15',  emoji: '🔥', name: 'Resilient',          desc: 'Wave 15 on Hard',              stars: 5, f: s => (s.bestWave.hard || 0) >= 15 },
+    { id: 'games10', emoji: '🎮', name: 'Loyal player',       desc: 'Play 10 games',               stars: 2, f: s => s.games >= 10 },
+    { id: 'video3',  emoji: '🎬', name: 'Viewer',             desc: 'Use 3 video bonuses',       stars: 1, f: s => s.videos >= 3 },
+    { id: 'chest5',  emoji: '🎁', name: 'Treasure collector', desc: 'Open 5 chests',               stars: 2, f: s => s.chests >= 5 },
+    { id: 'streak7', emoji: '📆', name: 'Full week',          desc: '7-day streak',                  stars: 5, f: s => s.bestStreak >= 7 }
   ];
 
   const TASKS = [
-    { id: 'kills',  emoji: '🧟', text: n => 'Ubij ' + n + ' neprijatelja',     goal: [60, 100, 160], stars: 2 },
-    { id: 'merges', emoji: '🔗', text: n => 'Spoji vojnike ' + n + ' puta',    goal: [10, 16, 24],   stars: 2 },
-    { id: 'buys',   emoji: '🛒', text: n => 'Kupi ' + n + ' vojnika',          goal: [12, 20, 30],   stars: 2 },
-    { id: 'wave',   emoji: '🌊', text: n => 'Dođi do ' + n + '. talasa',       goal: [8, 12, 16],    stars: 3, max: true },
-    { id: 'calls',  emoji: '▶️', text: n => 'Pozovi talas ranije ' + n + ' puta', goal: [4, 8, 12],  stars: 2 },
-    { id: 'boss',   emoji: '👹', text: n => 'Pobijedi bosa',                   goal: [1, 1, 1],      stars: 4 }
+    { id: 'kills',  emoji: '🧟', text: n => 'Kill ' + n + ' enemies',     goal: [60, 100, 160], stars: 2 },
+    { id: 'merges', emoji: '🔗', text: n => 'Merge units ' + n + ' times',    goal: [10, 16, 24],   stars: 2 },
+    { id: 'buys',   emoji: '🛒', text: n => 'Buy ' + n + ' units',          goal: [12, 20, 30],   stars: 2 },
+    { id: 'wave',   emoji: '🌊', text: n => 'Reach wave ' + n,       goal: [8, 12, 16],    stars: 3, max: true },
+    { id: 'calls',  emoji: '▶️', text: n => 'Call a wave early ' + n + ' times', goal: [4, 8, 12],  stars: 2 },
+    { id: 'boss',   emoji: '👹', text: n => 'Defeat a boss',                   goal: [1, 1, 1],      stars: 4 }
   ];
 
   function bossTotal(s) { let t = 0; for (const k of BOSS_KEYS) t += s.bossKills[k] || 0; return t; }
@@ -141,7 +141,7 @@
         if (t.id !== id || t.done) continue;
         const def = taskDef(id);
         t.prog = def.max ? Math.max(t.prog, n) : t.prog + n;
-        if (t.prog >= t.goal) { t.prog = t.goal; t.done = true; addStars(def.stars, '– zadatak gotov'); }
+        if (t.prog >= t.goal) { t.prog = t.goal; t.done = true; addStars(def.stars, '– task done'); }
         touch();
       }
     }
