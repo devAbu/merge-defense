@@ -21,9 +21,9 @@
   // Each map is a polyline the enemies walk along (field is x -20..340, y ~90..235). Lengths are kept similar
   // (~1000-1060) so difficulty stays comparable; verify with `npm run sim`.
   const MAPS = {
-    classic: { name: 'Klasik', emoji: '🛣️', path: [[-20, 92], [310, 92], [310, 162], [50, 162], [50, 232], [336, 232]] },
-    zigzag: { name: 'Cik-cak', emoji: '⚡', path: [[-20, 92], [40, 92], [40, 232], [100, 232], [100, 92], [160, 92], [160, 232], [220, 232], [220, 92], [280, 92], [280, 232], [336, 232]] },
-    spiral: { name: 'Spirala', emoji: '🌀', path: [[-20, 92], [320, 92], [320, 232], [40, 232], [40, 162], [250, 162]] }
+    classic: { name: 'Classic', emoji: '🛣️', path: [[-20, 92], [310, 92], [310, 162], [50, 162], [50, 232], [336, 232]] },
+    zigzag: { name: 'Zigzag', emoji: '⚡', path: [[-20, 92], [40, 92], [40, 232], [100, 232], [100, 92], [160, 92], [160, 232], [220, 232], [220, 92], [280, 92], [280, 232], [336, 232]] },
+    spiral: { name: 'Spiral', emoji: '🌀', path: [[-20, 92], [320, 92], [320, 232], [40, 232], [40, 162], [250, 162]] }
   };
   const MAP_KEYS = ['classic', 'zigzag', 'spiral'];
   function buildGeo(path) {
@@ -56,62 +56,62 @@
   const TYPE_KEYS = ['archer', 'gunner', 'cannon', 'mage', 'sniper', 'flame', 'tesla', 'banner', 'miner'];
   const TYPES = {
     archer: {
-      name: 'Strijelac', emoji: '🏹', cost: 10, dmg: 6, rate: 1, speed: 420, c1: '#4cc26a', c2: '#26803f',
-      desc: 'Jeftin i pouzdan. Najbolji izbor za početak.', best: 'Početak igre, osnovna odbrana'
+      name: 'Archer', emoji: '🏹', cost: 10, dmg: 6, rate: 1, speed: 420, c1: '#4cc26a', c2: '#26803f',
+      desc: 'Cheap and reliable. Best pick to start.', best: 'Early game, basic defense'
     },
     gunner: {
-      name: 'Puškar', emoji: '🔫', cost: 25, dmg: 3, rate: 3, speed: 760, c1: '#5b8cff', c2: '#2c4fb8',
-      desc: 'Veoma brza paljba sitnom štetom.', best: 'Brzi i slabi neprijatelji'
+      name: 'Gunner', emoji: '🔫', cost: 25, dmg: 3, rate: 3, speed: 760, c1: '#5b8cff', c2: '#2c4fb8',
+      desc: 'Very fast fire, tiny damage.', best: 'Fast, weak enemies'
     },
     cannon: {
-      name: 'Top', emoji: '💣', cost: 50, dmg: 16, rate: 0.5, speed: 250, splash: 48, c1: '#ff7a59', c2: '#b83c22',
-      desc: 'Spora paljba, ali šteta po površini (60% okolo).', best: 'Grupe neprijatelja'
+      name: 'Cannon', emoji: '💣', cost: 50, dmg: 16, rate: 0.5, speed: 250, splash: 48, c1: '#ff7a59', c2: '#b83c22',
+      desc: 'Slow fire, area damage (60% around).', best: 'Groups of enemies'
     },
     mage: {
-      name: 'Čarobnjak', emoji: '🧙', cost: 40, dmg: 5, rate: 1.2, speed: 320, slow: 0.4, slowT: 2, c1: '#b57bff', c2: '#6a35c4',
-      desc: 'Usporava metu za 40% na 2s. Pojačava sve ostale.', best: 'Podrška, brzi neprijatelji'
+      name: 'Mage', emoji: '🧙', cost: 40, dmg: 5, rate: 1.2, speed: 320, slow: 0.4, slowT: 2, c1: '#b57bff', c2: '#6a35c4',
+      desc: 'Slows the target 40% for 2s. Helps the rest.', best: 'Support, fast enemies'
     },
     sniper: {
-      name: 'Snajper', emoji: '🎯', cost: 70, dmg: 60, rate: 0.35, speed: 1400, target: 'strong', c1: '#ffd24a', c2: '#c48a12',
-      desc: 'Ogromna šteta jednoj meti. Cilja najjačeg.', best: 'Tenkovi i bosovi'
+      name: 'Sniper', emoji: '🎯', cost: 70, dmg: 60, rate: 0.35, speed: 1400, target: 'strong', c1: '#ffd24a', c2: '#c48a12',
+      desc: 'Huge damage to one target. Aims at the strongest.', best: 'Tanks and bosses'
     },
     flame: {
-      name: 'Plamenjak', emoji: '🔥', cost: 45, dmg: 5, rate: 1.5, speed: 520, burn: 0.7, burnT: 3, c1: '#ff5f6d', c2: '#b0172a',
-      desc: 'Pali metu: 70% štete/s u 3s, probija oklop.', best: 'Tenkovi i bosovi'
+      name: 'Pyro', emoji: '🔥', cost: 45, dmg: 5, rate: 1.5, speed: 520, burn: 0.7, burnT: 3, c1: '#ff5f6d', c2: '#b0172a',
+      desc: 'Burns the target 3s (70% dmg/s), ignores armor.', best: 'Tanks and bosses'
     },
     tesla: {
-      name: 'Munja', emoji: '⚡', cost: 60, dmg: 8, rate: 1, speed: 900, chain: 2, chainR: 90, chainF: 0.5, c1: '#22d3ee', c2: '#0e7490',
-      desc: 'Munja skače na još 2 bliska neprijatelja.', best: 'Grupe neprijatelja'
+      name: 'Tesla', emoji: '⚡', cost: 60, dmg: 8, rate: 1, speed: 900, chain: 2, chainR: 90, chainF: 0.5, c1: '#22d3ee', c2: '#0e7490',
+      desc: 'Lightning jumps to 2 more nearby enemies.', best: 'Groups of enemies'
     },
     banner: {
-      name: 'Zastavnik', emoji: '🚩', cost: 55, aura: 0.12, auraStep: 0.03, c1: '#f472b6', c2: '#9d174d',
-      desc: 'Ne puca. Pojačava susjedne vojnike (+12% štete).', best: 'Uz više jakih vojnika'
+      name: 'Banner', emoji: '🚩', cost: 55, aura: 0.12, auraStep: 0.03, c1: '#f472b6', c2: '#9d174d',
+      desc: 'Does not shoot. Boosts neighbours (+12% damage).', best: 'Next to several strong units'
     },
     miner: {
-      name: 'Rudar', emoji: '⛏️', cost: 30, income: 0.35, c1: '#37c9c0', c2: '#1b857f',
-      desc: 'Ne puca, nego proizvodi 🪙. Spajanjem raste.', best: 'Rano u igri (isplati se za ~90s)'
+      name: 'Miner', emoji: '⛏️', cost: 30, income: 0.35, c1: '#37c9c0', c2: '#1b857f',
+      desc: 'Does not shoot, produces 🪙. Grows by merging.', best: 'Early game (pays off in ~90s)'
     }
   };
 
   const ENEMIES = {
-    grunt: { name: 'Zombi', emoji: '🧟', hp: 1, spd: 1, rew: 1, dmg: 1 },
-    runner: { name: 'Brzi', emoji: '🦇', hp: 0.55, spd: 1.8, rew: 1, dmg: 1 },
-    tank: { name: 'Tenk', emoji: '🐗', hp: 3.2, spd: 0.65, rew: 2.5, dmg: 1 },
+    grunt: { name: 'Zombie', emoji: '🧟', hp: 1, spd: 1, rew: 1, dmg: 1 },
+    runner: { name: 'Runner', emoji: '🦇', hp: 0.55, spd: 1.8, rew: 1, dmg: 1 },
+    tank: { name: 'Tank', emoji: '🐗', hp: 3.2, spd: 0.65, rew: 2.5, dmg: 1 },
     boss: { name: 'BOSS', emoji: '👹', hp: 22, spd: 0.55, rew: 20, dmg: 3 }
   };
   // Boss variety: every 10th wave a different boss with its own mechanic
   const BOSSES = [
-    { key: 'golem', name: 'Golem', emoji: '🗿', hp: 22, spd: 0.5, rew: 20, armor: 0.72, info: 'Kamena koža: prima 28% manje štete.' },
-    { key: 'drake', name: 'Zmaj', emoji: '🐉', hp: 15, spd: 1.05, rew: 24, info: 'Brz i opasan — jaka šteta odmah.' },
-    { key: 'guard', name: 'Čuvar', emoji: '🧙‍♂️', hp: 21, spd: 0.55, rew: 22, regen: 0.025, info: 'Liječi se 2.5% zdravlja u sekundi.' },
-    { key: 'necro', name: 'Nekromant', emoji: '💀', hp: 18, spd: 0.55, rew: 24, summon: 3.5, info: 'Poziva zombije dok ide putem.' }
+    { key: 'golem', name: 'Golem', emoji: '🗿', hp: 22, spd: 0.5, rew: 20, armor: 0.72, info: 'Stone skin: takes 28% less damage.' },
+    { key: 'drake', name: 'Dragon', emoji: '🐉', hp: 15, spd: 1.05, rew: 24, info: 'Fast and dangerous — hits hard right away.' },
+    { key: 'guard', name: 'Guardian', emoji: '🧙‍♂️', hp: 21, spd: 0.55, rew: 22, regen: 0.025, info: 'Heals 2.5% of its health per second.' },
+    { key: 'necro', name: 'Necromancer', emoji: '💀', hp: 18, spd: 0.55, rew: 24, summon: 3.5, info: 'Summons zombies as it walks.' }
   ];
   function bossVariant(w) { return Math.floor(w / 10 - 1) % BOSSES.length; }
 
   const MODES = {
-    easy: { key: 'easy', name: 'Lagano', emoji: '🌱', coins: 30, lives: 15, hp: 0.65, income: 1.3, reward: 1.15 },
-    normal: { key: 'normal', name: 'Srednje', emoji: '⚔️', coins: 15, lives: 10, hp: 1, income: 1, reward: 1 },
-    hard: { key: 'hard', name: 'Teško', emoji: '🔥', coins: 10, lives: 5, hp: 1.5, income: 0.8, reward: 0.9 }
+    easy: { key: 'easy', name: 'Easy', emoji: '🌱', coins: 30, lives: 15, hp: 0.65, income: 1.3, reward: 1.15 },
+    normal: { key: 'normal', name: 'Normal', emoji: '⚔️', coins: 15, lives: 10, hp: 1, income: 1, reward: 1 },
+    hard: { key: 'hard', name: 'Hard', emoji: '🔥', coins: 10, lives: 5, hp: 1.5, income: 0.8, reward: 0.9 }
   };
   const MODE_KEYS = ['easy', 'normal', 'hard'];
 
@@ -228,7 +228,7 @@
       s.slots[a] = null;
       const p = slotPos(b);
       s.rings.push({ x: p[0], y: p[1], t: 0, c: '#ffd84a', r: 44, life: 0.45 });
-      s.texts.push({ x: p[0], y: p[1] - 20, t: 0, s: 'Nivo ' + B.tier + '!', c: '#ffd84a', size: 15, life: 0.9 });
+      s.texts.push({ x: p[0], y: p[1] - 20, t: 0, s: 'Level ' + B.tier + '!', c: '#ffd84a', size: 15, life: 0.9 });
       ev(s, 'merge', { tier: B.tier });
       return 'merge';
     }
@@ -275,7 +275,7 @@
     ev(s, 'wave');
     if (isBossWave(s.wave)) ev(s, 'boss'); else if (bossNext(s)) ev(s, 'bossWarn');
     if (isBossWave(s.wave)) s.announce = { text: BOSSES[bossVariant(s.wave)].emoji + ' BOSS: ' + BOSSES[bossVariant(s.wave)].name + '!', sub: BOSSES[bossVariant(s.wave)].info, t: 0, life: 2.6, color: '#ff5a5a' };
-    else if (bossNext(s)) s.announce = { text: '⚠️ BOSS ZA SLJEDEĆI TALAS', sub: BOSSES[bossVariant(s.wave + 1)].emoji + ' ' + BOSSES[bossVariant(s.wave + 1)].name + ': ' + BOSSES[bossVariant(s.wave + 1)].info, t: 0, life: 2.6, color: '#ffb347' };
+    else if (bossNext(s)) s.announce = { text: '⚠️ BOSS NEXT WAVE', sub: BOSSES[bossVariant(s.wave + 1)].emoji + ' ' + BOSSES[bossVariant(s.wave + 1)].name + ': ' + BOSSES[bossVariant(s.wave + 1)].info, t: 0, life: 2.6, color: '#ffb347' };
   }
 
   function callWave(s) {
@@ -564,7 +564,7 @@
     s.revived = true; s.over = false; s.lives = 3;
     s.enemies = []; s.proj = []; s.queue = [];
     s.waveTimer = Math.max(s.waveTimer, 14);
-    s.announce = { text: '💖 Nastavljaš!', sub: '+3 života, put je očišćen', t: 0, life: 2.2, color: '#ff8fb1' };
+    s.announce = { text: '💖 Back in the fight!', sub: '+3 lives, the path is cleared', t: 0, life: 2.2, color: '#ff8fb1' };
     ev(s, 'auto');
     return true;
   }
@@ -607,30 +607,30 @@
         const cnt = b.counts.miner;
         v = 0.5 * tf * (cnt === 0 ? 2.2 : cnt === 1 ? 1.4 : cnt < 4 ? 0.8 : 0.3);
         if (attackers < 2) v *= 0.2;
-        why = 'Rudar proizvodi 🪙 — što ranije, to više zaradi.';
+        why = 'Miners produce 🪙 — the earlier, the more they earn.';
       } else if (T.aura) {
         let totalDps = 0;
         for (const u of s.slots) if (u && ATTACKERS.indexOf(u.type) >= 0) totalDps += stats(u.type, u.tier).dps;
         const avg = attackers ? totalDps / attackers : 0;
         v = (stats(k, 1).aura * Math.min(3, attackers) * avg * 1.2) / c / (1 + 0.9 * b.counts[k]);
         if (attackers < 3) v *= 0.15;
-        why = 'Zastavnik pojačava susjedne vojnike za +' + Math.round(stats(k, 1).aura * 100) + '% štete.';
+        why = 'Banner boosts neighbouring units by +' + Math.round(stats(k, 1).aura * 100) + '% damage.';
       } else {
         v = (T.dmg * T.rate * BONUS[k]) / c / (1 + 0.4 * b.counts[k]);
-        why = 'Najisplativije sada: ' + T.name + ' (DPS ' + fmt(T.dmg * T.rate) + ' za ' + c + ' 🪙).';
-        if (k === 'sniper' && bossNext(s) && b.counts.sniper === 0 && s.wave >= 3) { v *= 3; why = 'Boss stiže — Snajper gađa najjačeg i radi ogromnu štetu.'; }
-        else if (k === 'sniper' && nTank >= 2 && b.counts.sniper < 1) { v *= 1.6; why = 'Tenkovi su debeli — Snajper ih najbolje probija.'; }
-        if (k === 'cannon' && nE >= 6 && b.counts.cannon < 2) { v *= 1.4; why = 'Puno neprijatelja na putu — Top pogađa više njih odjednom.'; }
-        if (k === 'mage' && nRun >= 3 && b.counts.mage === 0) { v *= 1.8; why = 'Brzi neprijatelji — Čarobnjak ih usporava za 40%.'; }
-        if (k === 'flame' && (nTank >= 2 || bossNext(s)) && b.counts.flame < 2) { v *= 1.5; why = 'Debeli neprijatelji — Plamenjak pali metu i probija oklop.'; }
-        if (k === 'tesla' && nE >= 5 && b.counts.tesla < 2) { v *= 1.4; why = 'Gužva na putu — Munja skače na još 2 neprijatelja.'; }
+        why = 'Best value now: ' + T.name + ' (DPS ' + fmt(T.dmg * T.rate) + ' for ' + c + ' 🪙).';
+        if (k === 'sniper' && bossNext(s) && b.counts.sniper === 0 && s.wave >= 3) { v *= 3; why = 'Boss incoming — the Sniper targets the strongest and deals huge damage.'; }
+        else if (k === 'sniper' && nTank >= 2 && b.counts.sniper < 1) { v *= 1.6; why = 'Tanks are tough — the Sniper punches through best.'; }
+        if (k === 'cannon' && nE >= 6 && b.counts.cannon < 2) { v *= 1.4; why = 'Lots of enemies on the path — the Cannon hits many at once.'; }
+        if (k === 'mage' && nRun >= 3 && b.counts.mage === 0) { v *= 1.8; why = 'Fast enemies — the Mage slows them by 40%.'; }
+        if (k === 'flame' && (nTank >= 2 || bossNext(s)) && b.counts.flame < 2) { v *= 1.5; why = 'Tough enemies — the Pyro burns targets and ignores armor.'; }
+        if (k === 'tesla' && nE >= 5 && b.counts.tesla < 2) { v *= 1.4; why = 'Crowded path — Tesla jumps to 2 more enemies.'; }
       }
       // Merge chance: an unpaired level-1 unit of the same type exists, so buying one more merges at once
       const merges = b.t1[k] >= 1;
       if (merges) {
         v *= 1.7;
         if (b.t2[k] >= 1) v *= 1.15;
-        why = 'Kupi ' + T.name + ' — spaja se s tvojim ' + T.name + 'om (nivo 1) u nivo 2 i ne zauzima novo mjesto.';
+        why = 'Buy ' + T.name + ' — it merges with your ' + T.name + ' (level 1) into level 2 and takes no new slot.';
       } else if (free <= 1) v *= 0.45;
       else if (free === 2) v *= 0.65;
       else if (free === 3) v *= 0.85;
@@ -665,7 +665,7 @@
       for (let j = i + 1; j < NSLOTS; j++)
         if (canMerge(s, i, j)) {
           const u = s.slots[i];
-          return { kind: 'merge', a: i, b: j, text: 'Spoji 2× ' + TYPES[u.type].name + ' (nivo ' + u.tier + ') u nivo ' + (u.tier + 1) + ' — jači je od dva odvojena i oslobađa mjesto.' };
+          return { kind: 'merge', a: i, b: j, text: 'Merge 2× ' + TYPES[u.type].name + ' (level ' + u.tier + ') into level ' + (u.tier + 1) + ' — stronger than two separate ones, and it frees a slot.' };
         }
     const b = boardInfo(s, -1);
 
@@ -680,15 +680,15 @@
       const T = TYPES[u.type];
       const after = bestBuy(s, boardInfo(s, wi), 1);
       const half = Math.floor(u.val * 0.5);
-      const val = u.type === 'miner' ? '+' + (stats('miner', u.tier).income * s.mode.income).toFixed(2) + ' 🪙/s' : T.aura ? '+' + Math.round(stats(u.type, u.tier).aura * 100) + '% štete susjedima' : 'DPS ' + fmt(stats(u.type, u.tier).dps);
-      let text = 'Nema mjesta. Prodaj ' + T.name + ' (nivo ' + u.tier + ') — najmanje vrijedan (' + val + '), vraća +' + half + ' 🪙. Zatim kupi ' + TYPES[after.type].name + '.';
+      const val = u.type === 'miner' ? '+' + (stats('miner', u.tier).income * s.mode.income).toFixed(2) + ' 🪙/s' : T.aura ? '+' + Math.round(stats(u.type, u.tier).aura * 100) + '% damage to neighbours' : 'DPS ' + fmt(stats(u.type, u.tier).dps);
+      let text = 'No room. Sell ' + T.name + ' (level ' + u.tier + ') — least valuable (' + val + '), returns +' + half + ' 🪙. Then buy ' + TYPES[after.type].name + '.';
       return { kind: 'sell', slot: wi, type: after.type, text };
     }
 
     const best = bestBuy(s, b, b.free);
     let text = best.why;
-    if (!best.merges && b.free <= 3) text += ' Slobodnih mjesta: ' + b.free + '.';
-    if (s.coins < best.cost) text += ' Fali još ' + Math.ceil(best.cost - s.coins) + ' 🪙.';
+    if (!best.merges && b.free <= 3) text += ' Free slots: ' + b.free + '.';
+    if (s.coins < best.cost) text += ' Need ' + Math.ceil(best.cost - s.coins) + ' more 🪙.';
     return { kind: 'buy', type: best.type, merges: best.merges, text };
   }
 
