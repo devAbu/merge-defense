@@ -33,8 +33,17 @@
   const META = window.Meta.create(localStorage);
   const nowD = new Date();
   const WINTER = (nowD.getMonth() === 11 || (nowD.getMonth() === 0 && nowD.getDate() <= 6)) || Q.get('season') === 'winter';
+  // Records are kept per difficulty AND map: key "mode:map" (e.g. "normal:spiral"), stored as md2_best_<mode>_<map>.
+  // Records from before maps existed (md2_best_<mode>) count as the Classic map.
   const best = {};
-  C.MODE_KEYS.forEach(k => { best[k] = parseInt(load('md2_best_' + k, '0'), 10) || 0; });
+  const recKey = (mode, map) => mode + ':' + map;
+  C.MODE_KEYS.forEach(k => {
+    C.MAP_KEYS.forEach(m => {
+      let v = load('md2_best_' + k + '_' + m, null);
+      if (v === null && m === 'classic') v = load('md2_best_' + k, '0');
+      best[recKey(k, m)] = parseInt(v, 10) || 0;
+    });
+  });
 
   // ---------- state ----------
   let scene = load('md2_seen', '0') === '1' ? 'menu' : 'guide';
@@ -128,7 +137,14 @@
       const meta = window.Meta.sanitize(o.meta);
       if (!meta) return null;
       const bestOut = {};
-      C.MODE_KEYS.forEach(k => { bestOut[k] = Math.max(0, Math.min(9999, parseInt(o.best && o.best[k], 10) || 0)); });
+      const num = v => Math.max(0, Math.min(9999, parseInt(v, 10) || 0));
+      C.MODE_KEYS.forEach(k => {
+        C.MAP_KEYS.forEach(m => {
+          let v = o.best && o.best[recKey(k, m)];
+          if (v === undefined && m === 'classic' && o.best) v = o.best[k]; // codes made before per-map records
+          bestOut[recKey(k, m)] = num(v);
+        });
+      });
       return { meta, best: bestOut };
     } catch (err) { return null; }
   }
@@ -150,7 +166,7 @@
     if (!ok) return;
     importing = true; // stops the autosave from overwriting what we are about to write
     save('md3_meta', JSON.stringify(r.meta));
-    C.MODE_KEYS.forEach(k => save('md2_best_' + k, String(r.best[k])));
+    C.MODE_KEYS.forEach(k => C.MAP_KEYS.forEach(m => save('md2_best_' + k + '_' + m, String(r.best[recKey(k, m)]))));
     clearSave();
     location.reload();
   }
@@ -1081,7 +1097,8 @@
       text(k === 'easy' ? 'Više novčića i života' : k === 'hard' ? 'Malo novčića, malo života' : 'Uravnotežena igra', 100, y + 70, 11, '#8493bd', 'left', '600');
       // record sits in the top-right corner so it never collides with the long "enemies" line below
       text('REKORD', 318, y + 16, 11, '#8493bd', 'right', '700');
-      text(best[k] ? 'Talas ' + best[k] : '—', 318, y + 34, 15, col, 'right', '800');
+      const rec = best[recKey(k, mapKey)];
+      text(rec ? 'Talas ' + rec : '—', 318, y + 34, 15, col, 'right', '800');
     });
     const nT = META.tasksDone();
     const row = [['tasks', '📅 Zadaci', nT + '/3'], ['trophies', '🏆 Trofeji', META.achCount() + '/' + META.ACH.length], ['ups', '⭐ Nadogradnje', '']];
@@ -1304,7 +1321,7 @@
     text(String(s.wave), C.W / 2, 282, 56, '#fff', 'center', '900');
     text('TALAS', C.W / 2, 322, 11, '#8493bd', 'center', '700');
     if (newBest) text('🏆 Novi rekord!', C.W / 2, 350, 15, '#ffd84a', 'center', '800');
-    else text('Rekord: talas ' + best[modeKey], C.W / 2, 350, 13, '#ffe08a', 'center', '700');
+    else text('Rekord: talas ' + best[recKey(modeKey, s.mapKey)], C.W / 2, 350, 13, '#ffe08a', 'center', '700');
     text('Ubijeno neprijatelja: ' + s.kills, C.W / 2, 374, 12, '#b6c3e6', 'center', '600');
     text('⭐ Zarađeno: ' + (run ? run.paid : 0), C.W / 2, 398, 14, '#ffe08a', 'center', '800');
     let y = 420;
@@ -1373,7 +1390,8 @@
       }
       s.events.length = 0;
       if (sel >= 0 && !s.slots[sel]) sel = -1;
-      if (s.wave > best[modeKey]) { best[modeKey] = s.wave; save('md2_best_' + modeKey, String(s.wave)); newBest = s.wave > 1; }
+      const rk = recKey(modeKey, s.mapKey);
+      if (s.wave > best[rk]) { best[rk] = s.wave; save('md2_best_' + modeKey + '_' + s.mapKey, String(s.wave)); newBest = s.wave > 1; }
       if (s.over) { scene = 'over'; overAt = now; drag = null; finishRun(); clearSave(); }
     }
     SND.setMode(scene === 'play' || scene === 'pause' ? (C.isBossWave(s.wave) && s.queue.length ? 'boss' : 'play') : scene === 'over' ? 'off' : 'menu');
